@@ -19,6 +19,7 @@ const VIEW_NAMES = [
   "climate-zones",
   "ocean-currents",
   "deep-ocean-currents",
+  "precipitation",
 ];
 const DEFAULT_WIDTH = 1366;
 const DEFAULT_HEIGHT = 683;
@@ -27,6 +28,9 @@ const WARMUP_BATCH_SIZE = 24;
 const STEADY_BATCH_SIZE = 1;
 const AUTO_SEASON_BATCH_SIZE = 16;
 const UPDATE_INTERVAL_MS = 50;
+const SEASON_PERIODS = ["Mar-May", "Jun-Aug", "Sep-Nov", "Dec-Feb"];
+const NORTHERN_SEASONS = ["Spring", "Summer", "Autumn", "Winter"];
+const SOUTHERN_SEASONS = ["Autumn", "Winter", "Spring", "Summer"];
 
 class ShaderProgram {
   constructor(gl, vertexSource, fragmentSource, name) {
@@ -257,20 +261,36 @@ export class ClimateSimulator {
       documentRoot.querySelector("#climate-zone-legend"),
       null,
       null,
+      documentRoot.querySelector("#precipitation-legend"),
     ];
     this.seasonPosition = documentRoot.querySelector("#season-position");
     this.climateZoneStatus = documentRoot.querySelector("#climate-zone-status");
+    this.pointClimate = {
+      marker: documentRoot.querySelector("#map-selection-marker"),
+      clearButton: documentRoot.querySelector("#clear-map-selection"),
+      empty: documentRoot.querySelector("#map-interaction-hint"),
+      data: documentRoot.querySelector("#point-climate-data"),
+      coordinates: documentRoot.querySelector("#point-climate-coordinates"),
+      summary: documentRoot.querySelector("#point-climate-summary"),
+      status: documentRoot.querySelector("#point-climate-status"),
+      temperatureChart: documentRoot.querySelector("#point-temperature-chart"),
+      precipitationChart: documentRoot.querySelector("#point-precipitation-chart"),
+      values: documentRoot.querySelector("#point-climate-values"),
+    };
 
     this.viewMode = 3;
     this.pingPongIndex = 0;
     this.climateStatsIndex = 0;
     this.climateSampleCount = 0;
+    this.seasonalSampleCounts = [0, 0, 0, 0];
     this.seasonPasses = 0;
     this.automaticDeclination = 0;
     this.completedClimateYears = 0;
     this.ready = false;
     this.completedPasses = 0;
     this.uploadedHeightmap = null;
+    this.selectedPoint = null;
+    this.pointReadFramebuffer = null;
     this.rotationUnitFactor = Number(this.controls.rotationUnit.value);
     this.insolationUnitFactor = Number(this.controls.insolationUnit.value);
 
@@ -304,6 +324,7 @@ export class ClimateSimulator {
     this.controls.autoSeasons.addEventListener("change", () => {
       this.updateSeasonControls();
       this.markSimulationUnsettled();
+      this.updateSelectedPointClimate();
     });
     this.controls.seasonSpeed.addEventListener("change", () => {
       this.markSimulationUnsettled();
@@ -344,6 +365,9 @@ export class ClimateSimulator {
     this.document.querySelector("#download-map").addEventListener("click", () => {
       this.downloadCurrentMap();
     });
+    this.canvas.addEventListener("click", (event) => this.selectMapPointFromEvent(event));
+    this.canvas.addEventListener("keydown", (event) => this.handleMapSelectionKey(event));
+    this.pointClimate.clearButton.addEventListener("click", () => this.clearMapSelection());
   }
 
   convertDisplayedUnit(input, oldFactor, newFactor) {
@@ -379,6 +403,7 @@ export class ClimateSimulator {
       this.createGeometry();
       await this.loadAssets();
       this.createSimulationTargets();
+      this.pointReadFramebuffer = this.gl.createFramebuffer();
       this.clearSimulation();
 
       this.ready = true;
@@ -500,8 +525,8 @@ export class ClimateSimulator {
     const linearWrapping = { linear: true, repeatX: true };
 
     const waterVapor = [
-      Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
+      Texture2D.allocate(gl, width, height, gl.RGBA32F, gl.RGBA, gl.FLOAT),
+      Texture2D.allocate(gl, width, height, gl.RGBA32F, gl.RGBA, gl.FLOAT),
     ];
     const wind = [
       Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
@@ -541,6 +566,14 @@ export class ClimateSimulator {
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
     ];
+    const seasonalTemperature = [
+      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+    ];
+    const seasonalPrecipitation = [
+      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+    ];
     const climateZones = Texture2D.allocate(
       gl,
       width,
@@ -564,7 +597,13 @@ export class ClimateSimulator {
       texture.setSampling(linearWrapping);
     });
     biomes.setSampling(linearWrapping);
-    [...climateStatsA, ...climateStatsB, climateZones].forEach((texture) => {
+    [
+      ...climateStatsA,
+      ...climateStatsB,
+      ...seasonalTemperature,
+      ...seasonalPrecipitation,
+      climateZones,
+    ].forEach((texture) => {
       texture.setSampling({ repeatX: true });
     });
 
@@ -600,6 +639,8 @@ export class ClimateSimulator {
     climateStats.forEach((framebuffer, index) => {
       framebuffer.attachColor(climateStatsA[index], 0);
       framebuffer.attachColor(climateStatsB[index], 1);
+      framebuffer.attachColor(seasonalTemperature[index], 2);
+      framebuffer.attachColor(seasonalPrecipitation[index], 3);
       framebuffer.validate(`Climate statistics ${index}`);
     });
 
@@ -620,6 +661,8 @@ export class ClimateSimulator {
       biomes,
       climateStatsA,
       climateStatsB,
+      seasonalTemperature,
+      seasonalPrecipitation,
       climateZones,
       advectionFramebuffers: advection,
       biomeFramebuffer: biome,
@@ -681,7 +724,7 @@ export class ClimateSimulator {
         this.classifyClimateZones();
         this.completedClimateYears += 1;
         this.climateZoneStatus.textContent = `Classified from climate year ${this.completedClimateYears}`;
-        this.clearClimateStatistics();
+        this.clearClimateStatistics({ preserveSeasonalPatterns: true });
       }
     }
 
@@ -765,21 +808,24 @@ export class ClimateSimulator {
       : "Enable automatic seasons to classify a climate year";
   }
 
-  clearClimateStatistics() {
+  clearClimateStatistics({ preserveSeasonalPatterns = false } = {}) {
     const gl = this.gl;
     this.simulation.climateStatsFramebuffers.forEach((framebuffer) => {
-      framebuffer.use([0, 1]);
+      framebuffer.use(preserveSeasonalPatterns ? [0, 1] : [0, 1, 2, 3]);
       gl.clear(gl.COLOR_BUFFER_BIT);
     });
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.climateStatsIndex = 0;
     this.climateSampleCount = 0;
+    if (!preserveSeasonalPatterns) this.seasonalSampleCounts.fill(0);
+    this.updateSelectedPointClimate();
   }
 
   updateClimateStatistics() {
     const sourceIndex = this.climateStatsIndex;
     const targetIndex = 1 - sourceIndex;
-    this.simulation.climateStatsFramebuffers[targetIndex].use([0, 1]);
+    const seasonIndex = this.getClimateSeasonIndex();
+    this.simulation.climateStatsFramebuffers[targetIndex].use([0, 1, 2, 3]);
 
     const stats = this.programs.climateStats;
     stats.use();
@@ -788,13 +834,298 @@ export class ClimateSimulator {
     stats.setTexture("previousStatsA", 2, this.simulation.climateStatsA[sourceIndex]);
     stats.setTexture("previousStatsB", 3, this.simulation.climateStatsB[sourceIndex]);
     stats.setTexture("heightmap", 4, this.textures.heightmap);
+    stats.setTexture(
+      "previousSeasonalTemperature",
+      5,
+      this.simulation.seasonalTemperature[sourceIndex],
+    );
+    stats.setTexture(
+      "previousSeasonalPrecipitation",
+      6,
+      this.simulation.seasonalPrecipitation[sourceIndex],
+    );
     stats.setFloat("sampleCount", this.climateSampleCount);
+    stats.setFloat("seasonSampleCount", this.seasonalSampleCounts[seasonIndex]);
+    stats.setInteger("seasonIndex", seasonIndex);
     stats.setFloat("solarDeclination", this.getSolarDeclination());
     stats.setFloat("waterLevel", this.getWaterLevel());
     this.meshes.fullscreen.draw();
 
     this.climateStatsIndex = targetIndex;
     this.climateSampleCount += 1;
+    this.seasonalSampleCounts[seasonIndex] += 1;
+    this.updateSelectedPointClimate();
+  }
+
+  getClimateSeasonIndex() {
+    const phase = this.seasonPasses / this.getSeasonPassesPerYear();
+    return Math.min(3, Math.floor(phase * 4));
+  }
+
+  selectMapPointFromEvent(event) {
+    if (!this.ready) return;
+
+    const bounds = this.canvas.getBoundingClientRect();
+    const horizontalPosition = Math.min(
+      1,
+      Math.max(0, (event.clientX - bounds.left) / bounds.width),
+    );
+    const verticalPosition = Math.min(
+      1,
+      Math.max(0, (event.clientY - bounds.top) / bounds.height),
+    );
+    this.selectMapPoint(horizontalPosition, verticalPosition);
+  }
+
+  selectMapPoint(horizontalPosition, verticalPosition) {
+    horizontalPosition = Math.min(1, Math.max(0, horizontalPosition));
+    verticalPosition = Math.min(1, Math.max(0, verticalPosition));
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    this.selectedPoint = {
+      x: Math.min(width - 1, Math.floor(horizontalPosition * width)),
+      y: Math.min(height - 1, Math.floor((1 - verticalPosition) * height)),
+      longitude: horizontalPosition * 360 - 180,
+      latitude: 90 - verticalPosition * 180,
+      horizontalPosition,
+      verticalPosition,
+    };
+
+    this.pointClimate.marker.style.left = `${horizontalPosition * 100}%`;
+    this.pointClimate.marker.style.top = `${verticalPosition * 100}%`;
+    this.pointClimate.marker.hidden = false;
+    this.pointClimate.clearButton.hidden = false;
+    this.pointClimate.empty.hidden = true;
+    this.pointClimate.data.hidden = false;
+    this.updateSelectedPointClimate();
+  }
+
+  handleMapSelectionKey(event) {
+    const movement = event.shiftKey ? 0.05 : 0.01;
+    const horizontalPosition = this.selectedPoint?.horizontalPosition ?? 0.5;
+    const verticalPosition = this.selectedPoint?.verticalPosition ?? 0.5;
+    let nextHorizontalPosition = horizontalPosition;
+    let nextVerticalPosition = verticalPosition;
+
+    if (event.key === "ArrowLeft") nextHorizontalPosition -= movement;
+    else if (event.key === "ArrowRight") nextHorizontalPosition += movement;
+    else if (event.key === "ArrowUp") nextVerticalPosition -= movement;
+    else if (event.key === "ArrowDown") nextVerticalPosition += movement;
+    else if (event.key !== "Enter" && event.key !== " ") return;
+
+    event.preventDefault();
+    this.selectMapPoint(nextHorizontalPosition, nextVerticalPosition);
+  }
+
+  clearMapSelection() {
+    this.selectedPoint = null;
+    this.pointClimate.marker.hidden = true;
+    this.pointClimate.clearButton.hidden = true;
+    this.pointClimate.data.hidden = true;
+    this.pointClimate.empty.hidden = false;
+  }
+
+  updateSelectedPointClimate() {
+    if (!this.ready || !this.selectedPoint || !this.pointReadFramebuffer) return;
+
+    const { x, y, longitude, latitude } = this.selectedPoint;
+    const temperatures = this.readTexturePixel(
+      this.simulation.seasonalTemperature[this.climateStatsIndex],
+      x,
+      y,
+    );
+    const annualizedPrecipitation = this.readTexturePixel(
+      this.simulation.seasonalPrecipitation[this.climateStatsIndex],
+      x,
+      y,
+    );
+    const available = this.seasonalSampleCounts.map((count) => count > 0);
+    const precipitation = annualizedPrecipitation.map((value) => value / 4);
+    const availableCount = available.filter(Boolean).length;
+
+    this.pointClimate.coordinates.textContent = [
+      this.formatMapCoordinate(latitude, "N", "S"),
+      this.formatMapCoordinate(longitude, "E", "W"),
+    ].join(" · ");
+
+    if (!this.controls.autoSeasons.checked) {
+      this.pointClimate.status.textContent = "Enable automatic seasons to collect a pattern.";
+    } else if (availableCount < 4) {
+      this.pointClimate.status.textContent = `Collecting seasonal pattern · ${availableCount} of 4 periods available`;
+    } else {
+      const sampleCount = this.seasonalSampleCounts.reduce((sum, count) => sum + count, 0);
+      this.pointClimate.status.textContent = `Seasonal climatology · ${sampleCount} samples`;
+    }
+
+    if (availableCount === 4) {
+      const annualMeanTemperature = temperatures.reduce((sum, value) => sum + value, 0) / 4;
+      const annualPrecipitation = precipitation.reduce((sum, value) => sum + value, 0);
+      this.pointClimate.summary.textContent = `${annualMeanTemperature.toFixed(1)} °C annual mean · ${annualPrecipitation.toFixed(1)} cm/year`;
+    } else {
+      this.pointClimate.summary.textContent = "Annual summary available after all four periods.";
+    }
+
+    this.renderPointClimateTable(temperatures, precipitation, available, latitude);
+    this.renderTemperatureChart(temperatures, available);
+    this.renderPrecipitationChart(precipitation, available);
+  }
+
+  readTexturePixel(texture, x, y) {
+    const gl = this.gl;
+    const values = new Float32Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.pointReadFramebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      texture.texture,
+      0,
+    );
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.FLOAT, values);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return Array.from(values);
+  }
+
+  formatMapCoordinate(value, positiveSuffix, negativeSuffix) {
+    const suffix = value < 0 ? negativeSuffix : positiveSuffix;
+    return `${Math.abs(value).toFixed(1)}°${suffix}`;
+  }
+
+  renderPointClimateTable(temperatures, precipitation, available, latitude) {
+    const localSeasons = latitude >= 0 ? NORTHERN_SEASONS : SOUTHERN_SEASONS;
+    const rows = SEASON_PERIODS.map((period, index) => {
+      const row = this.document.createElement("tr");
+      const values = [
+        period,
+        localSeasons[index],
+        available[index] ? `${temperatures[index].toFixed(1)} °C` : "Collecting",
+        available[index] ? `${precipitation[index].toFixed(1)} cm` : "Collecting",
+      ];
+      values.forEach((value, cellIndex) => {
+        const cell = this.document.createElement(cellIndex === 0 ? "th" : "td");
+        if (cellIndex === 0) cell.scope = "row";
+        cell.textContent = value;
+        row.append(cell);
+      });
+      return row;
+    });
+    this.pointClimate.values.replaceChildren(...rows);
+  }
+
+  renderTemperatureChart(values, available) {
+    const validValues = values.filter((value, index) => available[index]);
+    let minimum = validValues.length ? Math.min(...validValues) : -5;
+    let maximum = validValues.length ? Math.max(...validValues) : 5;
+    minimum = Math.floor((minimum - 2) / 5) * 5;
+    maximum = Math.ceil((maximum + 2) / 5) * 5;
+    if (maximum - minimum < 10) {
+      minimum -= 5;
+      maximum += 5;
+    }
+
+    const chart = this.pointClimate.temperatureChart;
+    const geometry = this.getPointChartGeometry();
+    const yPosition = (value) => geometry.bottom
+      - (value - minimum) / (maximum - minimum) * geometry.height;
+    const content = this.renderPointChartGrid(minimum, maximum, geometry);
+    const segments = [];
+    let currentSegment = [];
+    values.forEach((value, index) => {
+      if (available[index]) {
+        currentSegment.push(`${geometry.x[index]},${yPosition(value)}`);
+      } else if (currentSegment.length) {
+        segments.push(currentSegment);
+        currentSegment = [];
+      }
+    });
+    if (currentSegment.length) segments.push(currentSegment);
+
+    content.push(...segments
+      .filter((segment) => segment.length > 1)
+      .map((segment) => `<polyline class="point-chart-temperature-line" points="${segment.join(" ")}"></polyline>`));
+    values.forEach((value, index) => {
+      if (available[index]) {
+        const y = yPosition(value);
+        content.push(`<circle class="point-chart-temperature-point" cx="${geometry.x[index]}" cy="${y}" r="5"></circle>`);
+        content.push(`<text class="point-chart-label" x="${geometry.x[index]}" y="${y - 10}" text-anchor="middle">${value.toFixed(1)}°</text>`);
+      } else {
+        content.push(this.renderMissingChartPoint(geometry.x[index], geometry));
+      }
+    });
+    content.push(this.renderPointChartPeriodLabels(geometry));
+    chart.innerHTML = content.join("");
+    chart.setAttribute(
+      "aria-label",
+      `Seasonal mean temperature: ${this.formatChartAriaValues(values, available, "degrees Celsius")}`,
+    );
+  }
+
+  renderPrecipitationChart(values, available) {
+    const validValues = values.filter((value, index) => available[index]);
+    const rawMaximum = validValues.length ? Math.max(...validValues) : 10;
+    const maximum = Math.max(10, Math.ceil(rawMaximum / 10) * 10);
+    const chart = this.pointClimate.precipitationChart;
+    const geometry = this.getPointChartGeometry();
+    const content = this.renderPointChartGrid(0, maximum, geometry);
+
+    values.forEach((value, index) => {
+      if (available[index]) {
+        const barHeight = Math.max(1, value / maximum * geometry.height);
+        const y = geometry.bottom - barHeight;
+        content.push(`<rect class="point-chart-precipitation-bar" x="${geometry.x[index] - 23}" y="${y}" width="46" height="${barHeight}" rx="3"></rect>`);
+        content.push(`<text class="point-chart-label" x="${geometry.x[index]}" y="${Math.max(14, y - 7)}" text-anchor="middle">${value.toFixed(1)}</text>`);
+      } else {
+        content.push(this.renderMissingChartPoint(geometry.x[index], geometry));
+      }
+    });
+    content.push(this.renderPointChartPeriodLabels(geometry));
+    chart.innerHTML = content.join("");
+    chart.setAttribute(
+      "aria-label",
+      `Seasonal precipitation: ${this.formatChartAriaValues(values, available, "centimeters")}`,
+    );
+  }
+
+  getPointChartGeometry() {
+    const left = 48;
+    const right = 390;
+    const top = 18;
+    const bottom = 150;
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      height: bottom - top,
+      x: SEASON_PERIODS.map((_, index) => left + (right - left) * index / 3),
+    };
+  }
+
+  renderPointChartGrid(minimum, maximum, geometry) {
+    const content = [];
+    for (let index = 0; index <= 3; index += 1) {
+      const y = geometry.top + geometry.height * index / 3;
+      const value = maximum - (maximum - minimum) * index / 3;
+      content.push(`<line class="point-chart-grid" x1="${geometry.left}" y1="${y}" x2="${geometry.right}" y2="${y}"></line>`);
+      content.push(`<text class="point-chart-label" x="40" y="${y + 4}" text-anchor="end">${value.toFixed(0)}</text>`);
+    }
+    return content;
+  }
+
+  renderPointChartPeriodLabels(geometry) {
+    const labels = ["MAM", "JJA", "SON", "DJF"];
+    return labels.map((label, index) => `<text class="point-chart-label" x="${geometry.x[index]}" y="177" text-anchor="middle">${label}</text>`).join("");
+  }
+
+  renderMissingChartPoint(x, geometry) {
+    return `<text class="point-chart-missing" x="${x}" y="${geometry.bottom - 8}" text-anchor="middle">…</text>`;
+  }
+
+  formatChartAriaValues(values, available, unit) {
+    return SEASON_PERIODS.map((period, index) => available[index]
+      ? `${period} ${values[index].toFixed(1)} ${unit}`
+      : `${period} collecting`).join(", ");
   }
 
   classifyClimateZones() {

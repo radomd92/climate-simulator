@@ -180,9 +180,17 @@
 
       <div class="viewport-panel">
         <div class="canvas-frame">
-          <canvas id="climate-canvas" width="1366" height="683">
+          <canvas
+            id="climate-canvas"
+            width="1366"
+            height="683"
+            tabindex="0"
+            aria-label="Interactive climate map. Click a location, or use the arrow keys, to inspect its seasonal climate."
+            aria-describedby="map-interaction-hint"
+          >
             Your browser does not support HTML canvas.
           </canvas>
+          <div id="map-selection-marker" class="map-selection-marker" hidden></div>
           <div id="loading-status" class="canvas-status" role="status">Loading simulation…</div>
         </div>
 
@@ -197,6 +205,7 @@
             <label><input type="radio" name="view-mode" value="6"> Climate zones</label>
             <label><input type="radio" name="view-mode" value="7"> Ocean currents</label>
             <label><input type="radio" name="view-mode" value="8"> Deep currents</label>
+            <label><input type="radio" name="view-mode" value="9"> Precipitation</label>
           </div>
           <div class="simulation-actions">
             <label class="simulation-progress" for="simulation-progress">
@@ -207,6 +216,63 @@
           </div>
         </div>
 
+        <section class="point-climate-panel" aria-labelledby="point-climate-heading">
+          <header class="point-climate-heading">
+            <div>
+              <p class="eyebrow">Selected location</p>
+              <h3 id="point-climate-heading">Seasonal point climate</h3>
+            </div>
+            <button id="clear-map-selection" type="button" hidden>Clear point</button>
+          </header>
+
+          <p id="map-interaction-hint" class="point-climate-empty">
+            Click anywhere on the map to compare temperature and precipitation through the year.
+          </p>
+
+          <div id="point-climate-data" hidden>
+            <div class="point-climate-location">
+              <p id="point-climate-coordinates"></p>
+              <p id="point-climate-summary"></p>
+              <p id="point-climate-status" class="point-climate-status"></p>
+            </div>
+
+            <div class="point-climate-charts">
+              <figure>
+                <figcaption>Mean temperature <span>°C</span></figcaption>
+                <svg
+                  id="point-temperature-chart"
+                  viewBox="0 0 420 190"
+                  role="img"
+                  aria-label="Seasonal mean temperature chart"
+                ></svg>
+              </figure>
+              <figure>
+                <figcaption>Precipitation <span>cm per season</span></figcaption>
+                <svg
+                  id="point-precipitation-chart"
+                  viewBox="0 0 420 190"
+                  role="img"
+                  aria-label="Seasonal precipitation chart"
+                ></svg>
+              </figure>
+            </div>
+
+            <div class="point-climate-table-wrap">
+              <table class="point-climate-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Period</th>
+                    <th scope="col">Local season</th>
+                    <th scope="col">Mean temperature</th>
+                    <th scope="col">Precipitation</th>
+                  </tr>
+                </thead>
+                <tbody id="point-climate-values"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <div class="legend" id="water-vapor-legend" hidden>
           <div class="gradient water-vapor-gradient"></div>
           <div class="legend-scale"><span>0 cm</span><span>3 cm</span><span>6 cm</span></div>
@@ -215,6 +281,11 @@
         <div class="legend" id="temperature-legend" hidden>
           <div class="gradient temperature-gradient"></div>
           <div class="legend-scale"><span>−50 °C</span><span>−10 °C</span><span>30 °C</span></div>
+        </div>
+
+        <div class="legend" id="precipitation-legend" hidden>
+          <div class="gradient precipitation-gradient"></div>
+          <div class="legend-scale"><span>0 cm/year</span><span>100 cm/year</span><span>300+ cm/year</span></div>
         </div>
 
         <div class="biome-legend" id="biome-legend">

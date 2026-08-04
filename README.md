@@ -22,7 +22,12 @@ Each GPU simulation pass:
 Solar declination controls seasonal heating. Positive values heat northern
 continents more strongly and negative values heat southern continents,
 producing seasonal monsoon reversal through land-ocean pressure differences.
-The pressure display mode can be used to inspect the fluid solver directly.
+The tropical pressure minimum, trade-wind convergence, and evaporation maximum
+follow half of the solar-declination displacement. The precipitation model uses
+a narrower migrating ITCZ while subtropical subsidence and subpolar ascent move
+less, preventing the summer rain belt from expanding across entire subtropical
+continents. The pressure display mode can be used to inspect the fluid solver
+directly.
 
 Global circulation is a weak velocity tendency rather than a fixed wind map.
 The pressure solver can therefore bend the latitude bands around continents
@@ -37,6 +42,21 @@ atmospheric wind stress, Coriolis deflection, coastline constraints, and
 temperature/salinity density gradients. Evaporation raises salinity,
 precipitation freshens it, and local radiative forcing slowly restores
 sea-surface temperature.
+
+Surface wind stress includes Ekman deflection. Latitude-varying Coriolis and
+coast geometry intensify poleward western-boundary currents such as the Gulf
+Stream and Kuroshio, while eastern-boundary currents such as California and
+Humboldt flow equatorward. Favorable alongshore winds mix deep cold water into
+eastern boundaries. Cold SST creates a marine-inversion tracer that is mixed
+and transported by the atmospheric wind field. The tracer decays over warm
+land and suppresses convective precipitation nonlinearly, so dry coastal air
+follows circulation rather than a fixed distance from a coastline. Strong
+inversions outside the deep tropics also cap terrain and monsoon rainfall,
+preventing generic mountain uplift from making the Atacama or Namib wet while
+leaving low-stability equatorial and Indian monsoon coasts largely unaffected.
+Low-latitude overturning entrains deep water weakly into the broad ocean mixed
+layer; concentrated eastern-boundary upwelling supplies the stronger coastal
+cooling. This avoids applying a cold-current inversion to all tropical oceans.
 
 The deep layer develops a slow return flow from density gradients and opposing
 surface transport. Cold or saline high-latitude water sinks when it is denser
@@ -53,6 +73,23 @@ displays visualize each layer's velocity direction and strength.
 This remains a two-layer approximation. It does not resolve full 3D basin
 bathymetry, multiple thermocline layers, tides, sea ice, or eddies below the
 simulation grid.
+
+## Temperature and precipitation
+
+The precipitation display maps the model's annualized surface precipitation
+from `0` to `300+ cm/year`. It combines atmospheric humidity with ascent,
+subsidence, convergence, monsoon convection, terrain condensation, and cold
+coastal upwelling effects; it is distinct from the atmospheric Water vapor
+display.
+
+Land and ocean temperatures apply seasonal anomalies around an annual
+latitude-based equilibrium rather than treating solar declination as an
+instantaneous latitude shift. Land responds more strongly than the ocean,
+retaining the thermal contrast that drives monsoons without producing
+unrealistically cold subtropical winters. Land temperature also applies a
+nonlinear elevation lapse curve with a maximum `70 K` relief penalty. The
+exponent concentrates cooling in plateaus and mountain ranges such as the Andes
+and Himalayas while limiting the effect on low terrain.
 
 The simulator batches GPU passes during its initial 600-pass warm-up, then
 switches to a lower-cost maintenance rate. Changing a planetary parameter
@@ -79,10 +116,13 @@ but remains an approximation because the simulator does not model twelve
 discrete observed months or a vertically resolved atmosphere.
 
 Monsoon classification also records a seasonal geographic potential based on
-summer continental heating, diagonal/equatorward ocean access, eastern-ocean
-access, and poleward relief. This prevents the subtropical desert belt from
-overriding windward Asian monsoon climates while retaining dry continental and
-rain-shadow cells.
+summer continental heating, an ocean sector to the east, and equatorward ocean
+access reinforced by poleward relief. Eastward sampling includes an
+equatorward diagonal so narrow islands do not block a humid coast, but it does
+not see through a continent to a distant ocean. Separate cool-winter and warm
+monsoon thresholds prevent the subtropical desert belt from overriding
+windward East Asian climates without granting the same exception to warm
+desert interiors.
 
 ## Run locally
 
