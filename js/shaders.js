@@ -566,6 +566,11 @@ export const shaders = {
         neighboringMoisture.g,
         0.50
       );
+      float marineMoisture = mix(
+        transportedMoisture.a,
+        neighboringMoisture.a,
+        0.15
+      );
       float temperature = getSurfaceTemperature(textureCoordinate);
       windSpeed = length(wind);
       float humidityScale = 18.0 + pow(
@@ -600,6 +605,7 @@ export const shaders = {
           clamp(coldSstAnomaly / 10.0, 0.0, 1.0),
           0.12
         );
+        marineMoisture = mix(marineMoisture, 1.0, 0.08);
       } else {
         float upslope = max(
           dot(normalize(wind + vec2(0.0001)), normalize(terrainGradient + vec2(0.0001))),
@@ -616,6 +622,7 @@ export const shaders = {
         condensedWater = max(waterBeforeCondensation - waterVapor, 0.0);
         float daytimeHeating = clamp((temperature - 285.0) / 20.0, 0.0, 1.0);
         marineStability *= mix(0.985, 0.960, daytimeHeating);
+        marineMoisture *= mix(0.997, 0.990, daytimeHeating);
       }
 
       waterVapor = max(waterVapor, 0.0001);
@@ -660,23 +667,39 @@ export const shaders = {
         heightmap,
         textureCoordinate + vec2(0.0, polewardOffset)
       ).r;
+      float polewardMidpointHeight = texture(
+        heightmap,
+        textureCoordinate + vec2(0.0, 0.5 * polewardOffset)
+      ).r;
       float polewardRelief = smoothstep(0.02, 0.18, polewardHeight - height);
-      float plateauMonsoon = smoothstep(0.08, 0.14, polewardHeight - height);
-      float tropicalHumidOnshoreFlow = smoothstep(0.28, 0.38, relativeHumidity);
-      float temperateHumidOnshoreFlow = smoothstep(0.12, 0.26, relativeHumidity)
-        * smoothstep(24.0, 30.0, abs(latitude));
+      float polewardLandConnection = smoothstep(
+        waterLevel - 0.015,
+        waterLevel + 0.015,
+        polewardMidpointHeight
+      );
+      float plateauMonsoon = smoothstep(
+        0.08,
+        0.14,
+        polewardHeight - height
+      ) * polewardLandConnection;
+      float marineHumidity = relativeHumidity * marineMoisture;
+      float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity);
+      float temperateHumidOnshoreFlow = smoothstep(0.14, 0.36, marineHumidity)
+        * smoothstep(24.0, 32.0, abs(latitude));
+      float deepMarineMonsoon = smoothstep(0.28, 0.42, marineHumidity);
       float humidOnshoreFlow = max(
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
       );
       float monsoonLatitude = 1.0 - smoothstep(26.0, 40.0, abs(latitude));
+      float plateauMonsoonAccess = equatorwardOcean * plateauMonsoon;
       float monsoonOceanAccess = max(
         humidOnshoreFlow,
-        equatorwardOcean * plateauMonsoon
+        plateauMonsoonAccess
       );
       float reinforcedMonsoonAccess = max(
         temperateHumidOnshoreFlow,
-        equatorwardOcean * plateauMonsoon
+        plateauMonsoonAccess
       );
       float monsoonAscent = seasonalLandHeating
         * monsoonLatitude
@@ -684,9 +707,22 @@ export const shaders = {
       float reinforcedMonsoonAscent = seasonalLandHeating
         * monsoonLatitude
         * reinforcedMonsoonAccess;
+      float temperateMonsoonAscent = seasonalLandHeating
+        * monsoonLatitude
+        * temperateHumidOnshoreFlow
+        * smoothstep(26.0, 32.0, abs(latitude));
+      float deepMarineMonsoonAscent = seasonalLandHeating
+        * monsoonLatitude
+        * deepMarineMonsoon;
+      float plateauMonsoonAscent = seasonalLandHeating
+        * monsoonLatitude
+        * plateauMonsoonAccess;
       float monsoonFlowSupport = 1.0 - smoothstep(0.0, 0.10, divergence);
       monsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       reinforcedMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
+      temperateMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
+      deepMarineMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
+      plateauMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       float monsoonOrography = max(orographicLift, polewardRelief);
       float rainfallEfficiency = clamp(
         0.35
@@ -727,12 +763,16 @@ export const shaders = {
         * monsoonAscent
         * monsoonOrography
         * monsoonInversionFactor;
-      float monsoonConvectivePrecipitation = 650.0
-        * monsoonAscent
+      float monsoonConvectivePrecipitation = 950.0
+        * plateauMonsoonAscent
         * (0.30 + 0.70 * monsoonOrography)
         * monsoonInversionFactor
-        + 300.0
-        * reinforcedMonsoonAscent
+        + 950.0
+        * temperateMonsoonAscent
+        * (0.30 + 0.70 * monsoonOrography)
+        * monsoonInversionFactor
+        + 650.0
+        * deepMarineMonsoonAscent
         * (0.30 + 0.70 * monsoonOrography)
         * monsoonInversionFactor;
       float annualPrecipitation = convectivePrecipitation
@@ -745,7 +785,12 @@ export const shaders = {
         0.20
       );
 
-      nextWaterVapor = vec4(waterVapor, annualPrecipitation, marineStability, 0.0);
+      nextWaterVapor = vec4(
+        waterVapor,
+        annualPrecipitation,
+        marineStability,
+        marineMoisture
+      );
       nextWind = vec4(wind, 0.0, 0.0);
       temperatureOutput = vec4(temperature);
       nextPressure = vec4(pressure, 0.0, 0.0, 0.0);
@@ -813,6 +858,7 @@ export const shaders = {
     void main() {
       float temperature = texture(temperatureMap, textureCoordinate).r - 273.15;
       float waterVapor = texture(waterVaporMap, textureCoordinate).r;
+      float marineMoisture = texture(waterVaporMap, textureCoordinate).a;
       float precipitation = texture(waterVaporMap, textureCoordinate).g;
       float latitude = (2.0 * textureCoordinate.y - 1.0) * 90.0;
       float circulationLatitude = abs(latitude - 0.50 * solarDeclination);
@@ -840,11 +886,25 @@ export const shaders = {
         heightmap,
         textureCoordinate + vec2(0.0, polewardOffset)
       ).r;
+      float polewardMidpointHeight = texture(
+        heightmap,
+        textureCoordinate + vec2(0.0, 0.5 * polewardOffset)
+      ).r;
       float polewardRelief = smoothstep(0.02, 0.18, polewardHeight - height);
-      float plateauMonsoon = smoothstep(0.08, 0.14, polewardHeight - height);
-      float tropicalHumidOnshoreFlow = smoothstep(0.28, 0.38, relativeHumidity);
-      float temperateHumidOnshoreFlow = smoothstep(0.12, 0.26, relativeHumidity)
-        * smoothstep(24.0, 30.0, abs(latitude));
+      float polewardLandConnection = smoothstep(
+        waterLevel - 0.015,
+        waterLevel + 0.015,
+        polewardMidpointHeight
+      );
+      float plateauMonsoon = smoothstep(
+        0.08,
+        0.14,
+        polewardHeight - height
+      ) * polewardLandConnection;
+      float marineHumidity = relativeHumidity * marineMoisture;
+      float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity);
+      float temperateHumidOnshoreFlow = smoothstep(0.14, 0.36, marineHumidity)
+        * smoothstep(24.0, 32.0, abs(latitude));
       float humidOnshoreFlow = max(
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
@@ -939,6 +999,10 @@ export const shaders = {
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 outputColor;
 
+    vec4 koppenColor(float red, float green, float blue) {
+      return vec4(vec3(red, green, blue) / 255.0, 1.0);
+    }
+
     void main() {
       if (texture(heightmap, textureCoordinate).r < waterLevel) {
         outputColor = vec4(0.04, 0.20, 0.30, 1.0);
@@ -980,41 +1044,72 @@ export const shaders = {
 
       if (warmestTemperature < 10.0) {
         outputColor = warmestTemperature < 0.0
-          ? vec4(0.85, 0.90, 0.91, 1.0)
-          : vec4(0.51, 0.61, 0.66, 1.0);
+          ? koppenColor(102.0, 102.0, 102.0) // EF
+          : koppenColor(178.0, 178.0, 178.0); // ET
       } else if (annualPrecipitationMm < aridityThreshold && !monsoonRegime) {
         bool desert = annualPrecipitationMm < 0.5 * aridityThreshold;
         bool hot = meanTemperature >= 18.0;
         if (desert) {
           outputColor = hot
-            ? vec4(0.77, 0.36, 0.18, 1.0)
-            : vec4(0.67, 0.43, 0.25, 1.0);
+            ? koppenColor(255.0, 0.0, 0.0) // BWh
+            : koppenColor(255.0, 150.0, 150.0); // BWk
         } else {
           outputColor = hot
-            ? vec4(0.74, 0.57, 0.22, 1.0)
-            : vec4(0.62, 0.55, 0.30, 1.0);
+            ? koppenColor(245.0, 165.0, 0.0) // BSh
+            : koppenColor(255.0, 220.0, 100.0); // BSk
         }
       } else if (coldestTemperature >= 18.0) {
         float monsoonLimitCm = max(10.0 - annualPrecipitationCm / 25.0, 0.0);
         if (driestMonthCm >= 6.0) {
-          outputColor = vec4(0.03, 0.37, 0.24, 1.0); // Af
+          outputColor = koppenColor(0.0, 0.0, 255.0); // Af
         } else if (driestMonthCm >= monsoonLimitCm) {
-          outputColor = vec4(0.03, 0.51, 0.42, 1.0); // Am
+          outputColor = koppenColor(0.0, 120.0, 255.0); // Am
         } else {
-          outputColor = vec4(0.47, 0.65, 0.25, 1.0); // Aw/As
+          outputColor = koppenColor(70.0, 170.0, 250.0); // Aw/As
         }
       } else if (coldestTemperature > 0.0) {
-        bool seasonallyDry = warmSeasonFraction < 0.3 || warmSeasonFraction > 0.7;
-        outputColor = seasonallyDry
-          ? vec4(0.61, 0.33, 0.40, 1.0)
-          : vec4(0.26, 0.55, 0.45, 1.0);
+        bool drySummer = warmSeasonFraction < 0.3;
+        bool dryWinter = warmSeasonFraction > 0.7;
+        int summerSubtype = warmestTemperature >= 22.0
+          ? 0
+          : (meanTemperature < 8.0 ? 2 : 1);
+
+        if (drySummer) {
+          if (summerSubtype == 0) outputColor = koppenColor(255.0, 255.0, 0.0); // Csa
+          else if (summerSubtype == 1) outputColor = koppenColor(200.0, 200.0, 0.0); // Csb
+          else outputColor = koppenColor(150.0, 150.0, 0.0); // Csc
+        } else if (dryWinter) {
+          if (summerSubtype == 0) outputColor = koppenColor(150.0, 255.0, 150.0); // Cwa
+          else if (summerSubtype == 1) outputColor = koppenColor(100.0, 200.0, 100.0); // Cwb
+          else outputColor = koppenColor(50.0, 150.0, 50.0); // Cwc
+        } else {
+          if (summerSubtype == 0) outputColor = koppenColor(200.0, 255.0, 80.0); // Cfa
+          else if (summerSubtype == 1) outputColor = koppenColor(100.0, 255.0, 80.0); // Cfb
+          else outputColor = koppenColor(50.0, 200.0, 0.0); // Cfc
+        }
       } else {
-        float coldSeverity = clamp((-coldestTemperature) / 45.0, 0.0, 1.0);
-        outputColor = mix(
-          vec4(0.29, 0.43, 0.62, 1.0),
-          vec4(0.20, 0.30, 0.52, 1.0),
-          coldSeverity
-        );
+        bool drySummer = warmSeasonFraction < 0.3;
+        bool dryWinter = warmSeasonFraction > 0.7;
+        int summerSubtype = warmestTemperature >= 22.0
+          ? 0
+          : (coldestTemperature <= -38.0 ? 3 : (meanTemperature < 3.0 ? 2 : 1));
+
+        if (drySummer) {
+          if (summerSubtype == 0) outputColor = koppenColor(255.0, 0.0, 255.0); // Dsa
+          else if (summerSubtype == 1) outputColor = koppenColor(200.0, 0.0, 200.0); // Dsb
+          else if (summerSubtype == 2) outputColor = koppenColor(150.0, 50.0, 150.0); // Dsc
+          else outputColor = koppenColor(150.0, 100.0, 150.0); // Dsd
+        } else if (dryWinter) {
+          if (summerSubtype == 0) outputColor = koppenColor(170.0, 175.0, 255.0); // Dwa
+          else if (summerSubtype == 1) outputColor = koppenColor(90.0, 120.0, 220.0); // Dwb
+          else if (summerSubtype == 2) outputColor = koppenColor(75.0, 80.0, 180.0); // Dwc
+          else outputColor = koppenColor(50.0, 0.0, 135.0); // Dwd
+        } else {
+          if (summerSubtype == 0) outputColor = koppenColor(0.0, 255.0, 255.0); // Dfa
+          else if (summerSubtype == 1) outputColor = koppenColor(55.0, 200.0, 255.0); // Dfb
+          else if (summerSubtype == 2) outputColor = koppenColor(0.0, 125.0, 125.0); // Dfc
+          else outputColor = koppenColor(0.0, 70.0, 95.0); // Dfd
+        }
       }
     }
   `,

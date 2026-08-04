@@ -680,6 +680,7 @@ export class ClimateSimulator {
     this.simulation.advectionFramebuffers.forEach((framebuffer) => {
       framebuffer.use([0, 1, 2, 3]);
       gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.clearBufferfv(gl.COLOR, 0, new Float32Array([0, 0, 0, 0]));
       gl.clearBufferfv(gl.COLOR, 3, new Float32Array([1, 0, 0, 0]));
     });
     this.simulation.oceanFramebuffers.forEach((framebuffer) => {

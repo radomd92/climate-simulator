@@ -286,6 +286,7 @@
         <div class="legend" id="precipitation-legend" hidden>
           <div class="gradient precipitation-gradient"></div>
           <div class="legend-scale"><span>0 cm/year</span><span>100 cm/year</span><span>300+ cm/year</span></div>
+          <p class="legend-note">Current seasonal rate, annualized. Point charts show each season's total.</p>
         </div>
 
         <div class="biome-legend" id="biome-legend">
@@ -301,17 +302,42 @@
         </div>
 
         <div class="climate-legend" id="climate-zone-legend" hidden>
-          <span class="koppen-af"><strong>Af</strong> Rainforest</span>
-          <span class="koppen-am"><strong>Am</strong> Monsoon</span>
-          <span class="koppen-aw"><strong>Aw</strong> Savanna</span>
-          <span class="koppen-bw"><strong>BW</strong> Desert</span>
-          <span class="koppen-bs"><strong>BS</strong> Steppe</span>
-          <span class="koppen-cs"><strong>Cs/Cw</strong> Seasonal</span>
-          <span class="koppen-cf"><strong>Cf</strong> Temperate</span>
-          <span class="koppen-d"><strong>D</strong> Continental</span>
-          <span class="koppen-et"><strong>ET</strong> Tundra</span>
-          <span class="koppen-ef"><strong>EF</strong> Ice cap</span>
+          <div class="climate-swatches">
+            <span class="koppen-af"><strong>Af</strong> Rainforest</span>
+            <span class="koppen-am"><strong>Am</strong> Monsoon</span>
+            <span class="koppen-aw"><strong>Aw</strong> Savanna</span>
+            <span class="koppen-bwh"><strong>BWh</strong> Hot desert</span>
+            <span class="koppen-bwk"><strong>BWk</strong> Cold desert</span>
+            <span class="koppen-bsh"><strong>BSh</strong> Hot steppe</span>
+            <span class="koppen-bsk"><strong>BSk</strong> Cold steppe</span>
+            <span class="koppen-csa"><strong>Csa</strong> Hot Mediterranean</span>
+            <span class="koppen-csb"><strong>Csb</strong> Warm Mediterranean</span>
+            <span class="koppen-csc"><strong>Csc</strong> Cold Mediterranean</span>
+            <span class="koppen-cwa"><strong>Cwa</strong> Dry winter, hot</span>
+            <span class="koppen-cwb"><strong>Cwb</strong> Dry winter, warm</span>
+            <span class="koppen-cwc"><strong>Cwc</strong> Dry winter, cold</span>
+            <span class="koppen-cfa"><strong>Cfa</strong> Humid subtropical</span>
+            <span class="koppen-cfb"><strong>Cfb</strong> Oceanic</span>
+            <span class="koppen-cfc"><strong>Cfc</strong> Subpolar oceanic</span>
+            <span class="koppen-dsa"><strong>Dsa</strong> Dry summer, hot</span>
+            <span class="koppen-dsb"><strong>Dsb</strong> Dry summer, warm</span>
+            <span class="koppen-dsc"><strong>Dsc</strong> Dry summer, cold</span>
+            <span class="koppen-dsd"><strong>Dsd</strong> Dry summer, severe</span>
+            <span class="koppen-dwa"><strong>Dwa</strong> Dry winter, hot</span>
+            <span class="koppen-dwb"><strong>Dwb</strong> Dry winter, warm</span>
+            <span class="koppen-dwc"><strong>Dwc</strong> Dry winter, cold</span>
+            <span class="koppen-dwd"><strong>Dwd</strong> Dry winter, severe</span>
+            <span class="koppen-dfa"><strong>Dfa</strong> Continental, hot</span>
+            <span class="koppen-dfb"><strong>Dfb</strong> Continental, warm</span>
+            <span class="koppen-dfc"><strong>Dfc</strong> Subarctic</span>
+            <span class="koppen-dfd"><strong>Dfd</strong> Severe subarctic</span>
+            <span class="koppen-et"><strong>ET</strong> Tundra</span>
+            <span class="koppen-ef"><strong>EF</strong> Ice cap</span>
+          </div>
           <small id="climate-zone-status">Collecting the first climate year…</small>
+          <small class="climate-palette-source">
+            Colors follow <a href="https://doi.org/10.1038/s41597-023-02549-6">Beck et al. (2023)</a>.
+          </small>
         </div>
 
         <fieldset class="display-options">

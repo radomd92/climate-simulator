@@ -610,6 +610,12 @@ input[type="checkbox"] {
   font-size: 0.75rem;
 }
 
+.legend-note {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .biome-legend {
   display: grid;
   grid-template-columns: repeat(9, minmax(5.5rem, 1fr));
@@ -645,38 +651,83 @@ input[type="checkbox"] {
 .desert { background: #c17136; }
 
 .climate-legend {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(7rem, 1fr));
   margin-bottom: 1rem;
 }
 
-.climate-legend span {
+.climate-swatches {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(10, minmax(5.5rem, 1fr));
+  grid-template-rows: repeat(3, minmax(3rem, auto));
+}
+
+.climate-swatches span {
   min-height: 3rem;
   display: grid;
   place-items: center;
   padding: 0.4rem;
-  color: white;
+  color: #07100f;
   font-size: 0.72rem;
   line-height: 1.15;
   text-align: center;
 }
 
-.climate-legend small {
-  grid-column: 1 / -1;
+.climate-legend > small {
+  display: block;
   padding-top: 0.5rem;
   color: var(--muted);
 }
 
-.koppen-af { background: #075f3c; }
-.koppen-am { background: #07826b; }
-.koppen-aw { background: #78a641; }
-.koppen-bw { background: #c45d2d; }
-.koppen-bs { background: #bd9138; }
-.koppen-cs { background: #9b5366; }
-.koppen-cf { background: #438b72; }
-.koppen-d { background: #4a6e9f; }
-.koppen-et { background: #839ca8; }
-.koppen-ef { background: #d9e6e8; color: #203236 !important; }
+.climate-legend > .climate-palette-source {
+  padding-top: 0.15rem;
+}
+
+.koppen-af { background: #0000ff; }
+.koppen-am { background: #0078ff; }
+.koppen-aw { background: #46aafa; }
+.koppen-bwh { background: #ff0000; }
+.koppen-bwk { background: #ff9696; }
+.koppen-bsh { background: #f5a500; }
+.koppen-bsk { background: #ffdc64; }
+.koppen-csa { background: #ffff00; }
+.koppen-csb { background: #c8c800; }
+.koppen-csc { background: #969600; }
+.koppen-cwa { background: #96ff96; }
+.koppen-cwb { background: #64c864; }
+.koppen-cwc { background: #329632; }
+.koppen-cfa { background: #c8ff50; }
+.koppen-cfb { background: #64ff50; }
+.koppen-cfc { background: #32c800; }
+.koppen-dsa { background: #ff00ff; }
+.koppen-dsb { background: #c800c8; }
+.koppen-dsc { background: #963296; }
+.koppen-dsd { background: #966496; }
+.koppen-dwa { background: #aaafff; }
+.koppen-dwb { background: #5a78dc; }
+.koppen-dwc { background: #4b50b4; }
+.koppen-dwd { background: #320087; }
+.koppen-dfa { background: #00ffff; }
+.koppen-dfb { background: #37c8ff; }
+.koppen-dfc { background: #007d7d; }
+.koppen-dfd { background: #00465f; }
+.koppen-et { background: #b2b2b2; }
+.koppen-ef { background: #666666; }
+
+.climate-swatches :is(
+  .koppen-af,
+  .koppen-am,
+  .koppen-dsb,
+  .koppen-dsc,
+  .koppen-dsd,
+  .koppen-dwb,
+  .koppen-dwc,
+  .koppen-dwd,
+  .koppen-dfc,
+  .koppen-dfd,
+  .koppen-ef
+) {
+  color: white;
+}
 
 .display-options {
   margin: 0;
@@ -741,8 +792,9 @@ footer {
     grid-template-columns: repeat(3, 1fr);
   }
 
-  .climate-legend {
-    grid-template-columns: repeat(3, 1fr);
+  .climate-swatches {
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(6, minmax(3rem, auto));
   }
 }
 
@@ -804,8 +856,9 @@ footer {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .climate-legend {
-    grid-template-columns: repeat(2, 1fr);
+  .climate-swatches {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(10, minmax(3rem, auto));
   }
 
   footer span {

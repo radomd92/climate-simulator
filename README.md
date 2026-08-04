@@ -39,7 +39,11 @@ and reverse local flow during monsoons. The circulation-strength control scales
 this tendency from disabled (`0`) to twice Earth-like (`2`), and retrograde
 rotation reverses all zonal bands. Monsoon moisture uses the humidity actually
 transported by this wind field rather than a fixed east- or west-ocean mask, so
-the source direction reverses with the circulation.
+the source direction reverses with the circulation. A separate marine-moisture
+tracer is generated over water, transported and mixed with humidity, and
+gradually decays over land. Humidity-driven monsoons require a high product of
+relative humidity and recent marine provenance, preventing residual continental
+humidity from activating a full monsoon.
 
 ## Ocean model
 
@@ -84,11 +88,13 @@ simulation grid.
 
 ## Temperature and precipitation
 
-The precipitation display maps the model's annualized surface precipitation
-from `0` to `300+ cm/year`. It combines atmospheric humidity with ascent,
-subsidence, convergence, monsoon convection, terrain condensation, and cold
-coastal upwelling effects; it is distinct from the atmospheric Water vapor
-display.
+The precipitation display maps the current season's annualized surface
+precipitation rate from `0` to `300+ cm/year`; it is not the completed annual
+total. It combines atmospheric humidity with ascent, subsidence, convergence,
+monsoon convection, terrain condensation, and cold coastal upwelling effects;
+it is distinct from the atmospheric Water vapor display. The selected-point
+charts convert each quarter's mean rate into centimeters per season and sum the
+four periods for the annual total.
 
 Outside the deep tropics, prescribed ascent over land is limited by simulated
 convergence and boundary-layer relative humidity. This keeps warm seas near a
@@ -135,7 +141,10 @@ The implementation includes tropical rainforest, monsoon, and savanna zones;
 hot and cold desert/steppe zones; temperate and continental zones with
 seasonal rainfall; and tundra/ice-cap zones. It follows Köppen-style thresholds
 but remains an approximation because the simulator does not model twelve
-discrete observed months or a vertically resolved atmosphere.
+discrete observed months or a vertically resolved atmosphere. The map uses the
+exact 30-class RGB palette published by Beck et al. (2023). Annual-mean
+temperature provides a proxy for the monthly warm-season count used to separate
+the `b` and `c` thermal subclasses.
 
 Monsoon classification also records a seasonal potential based on summer
 continental heating, transported relative humidity, convergence, and
