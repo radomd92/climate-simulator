@@ -377,6 +377,11 @@ export const shaders = {
       return max(height - waterLevel, 0.0) / max(1.0 - waterLevel, 0.0001);
     }
 
+    float getOceanWeight(vec2 uv) {
+      float height = texture(heightmap, uv).r;
+      return 1.0 - smoothstep(waterLevel - 0.025, waterLevel + 0.025, height);
+    }
+
     float getOceanEquilibriumTemperature(float latitude) {
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
       float temperature = 273.15 + mix(-45.0, 30.0, solarFactor) - 3.0;
@@ -527,24 +532,40 @@ export const shaders = {
       pressure = clamp(pressure, 0.65, 1.35);
 
       vec2 moistureCoordinate = textureCoordinate - wind * transportScale;
-      float waterVapor = texture(previousWaterVapor, moistureCoordinate).r;
-      float neighboringWaterVapor = 0.25 * (
-        texture(previousWaterVapor, moistureCoordinate - vec2(texel.x, 0.0)).r
-        + texture(previousWaterVapor, moistureCoordinate + vec2(texel.x, 0.0)).r
-        + texture(previousWaterVapor, moistureCoordinate - vec2(0.0, texel.y)).r
-        + texture(previousWaterVapor, moistureCoordinate + vec2(0.0, texel.y)).r
+      vec4 transportedMoisture = texture(previousWaterVapor, moistureCoordinate);
+      vec4 moistureLeft = texture(
+        previousWaterVapor,
+        moistureCoordinate - vec2(texel.x, 0.0)
       );
+      vec4 moistureRight = texture(
+        previousWaterVapor,
+        moistureCoordinate + vec2(texel.x, 0.0)
+      );
+      vec4 moistureDown = texture(
+        previousWaterVapor,
+        moistureCoordinate - vec2(0.0, texel.y)
+      );
+      vec4 moistureUp = texture(
+        previousWaterVapor,
+        moistureCoordinate + vec2(0.0, texel.y)
+      );
+      vec4 neighboringMoisture = 0.25 * (
+        moistureLeft + moistureRight + moistureDown + moistureUp
+      );
+      float waterVapor = transportedMoisture.r;
       // Small-scale atmospheric turbulence moves humidity across adjacent
       // streamlines instead of confining it to a single wind trajectory.
-      waterVapor = mix(waterVapor, neighboringWaterVapor, 0.15);
-      float marineStability = texture(previousWaterVapor, moistureCoordinate).b;
-      float neighboringStability = 0.25 * (
-        texture(previousWaterVapor, moistureCoordinate - vec2(texel.x, 0.0)).b
-        + texture(previousWaterVapor, moistureCoordinate + vec2(texel.x, 0.0)).b
-        + texture(previousWaterVapor, moistureCoordinate - vec2(0.0, texel.y)).b
-        + texture(previousWaterVapor, moistureCoordinate + vec2(0.0, texel.y)).b
+      waterVapor = mix(waterVapor, neighboringMoisture.r, 0.15);
+      float marineStability = mix(
+        transportedMoisture.b,
+        neighboringMoisture.b,
+        0.10
       );
-      marineStability = mix(marineStability, neighboringStability, 0.10);
+      float transportedPrecipitation = mix(
+        transportedMoisture.g,
+        neighboringMoisture.g,
+        0.50
+      );
       float temperature = getSurfaceTemperature(textureCoordinate);
       windSpeed = length(wind);
       float humidityScale = 18.0 + pow(
@@ -614,6 +635,16 @@ export const shaders = {
         abs(cellLatitude - 30.0)
       );
       float convergenceRain = clamp(-divergence * 0.015, 0.0, 0.4);
+      if (height >= waterLevel) {
+        float convergenceSupport = smoothstep(0.0, 0.015, convergenceRain);
+        float dryLandLatitude = smoothstep(8.0, 16.0, abs(latitude))
+          * (1.0 - smoothstep(24.0, 30.0, abs(latitude)));
+        equatorialAscent *= mix(
+          1.0,
+          mix(0.12, 1.0, convergenceSupport),
+          dryLandLatitude
+        );
+      }
       float seasonalLandHeating = smoothstep(
         0.02,
         0.16,
@@ -621,21 +652,9 @@ export const shaders = {
       ) * step(waterLevel, height);
       float equatorwardOffset = latitude >= 0.0 ? -0.08 : 0.08;
       vec2 equatorwardCoordinate = textureCoordinate + vec2(0.0, equatorwardOffset);
-      float equatorwardOcean = max(
-        texture(heightmap, equatorwardCoordinate).r < waterLevel ? 1.0 : 0.0,
-        max(
-          texture(heightmap, equatorwardCoordinate - vec2(0.03, 0.0)).r < waterLevel ? 1.0 : 0.0,
-          texture(heightmap, equatorwardCoordinate + vec2(0.03, 0.0)).r < waterLevel ? 1.0 : 0.0
-        )
-      );
-      float equatorwardDiagonal = latitude >= 0.0 ? -0.02 : 0.02;
-      float eastwardOcean = max(
-        texture(heightmap, textureCoordinate + vec2(0.03, 0.0)).r < waterLevel ? 1.0 : 0.0,
-        texture(
-          heightmap,
-          textureCoordinate + vec2(0.03, equatorwardDiagonal)
-        ).r < waterLevel ? 1.0 : 0.0
-      );
+      float equatorwardOcean = 0.50 * getOceanWeight(equatorwardCoordinate)
+        + 0.25 * getOceanWeight(equatorwardCoordinate - vec2(0.03, 0.0))
+        + 0.25 * getOceanWeight(equatorwardCoordinate + vec2(0.03, 0.0));
       float polewardOffset = latitude >= 0.0 ? 0.08 : -0.08;
       float polewardHeight = texture(
         heightmap,
@@ -643,15 +662,23 @@ export const shaders = {
       ).r;
       float polewardRelief = smoothstep(0.02, 0.18, polewardHeight - height);
       float plateauMonsoon = smoothstep(0.08, 0.14, polewardHeight - height);
-      float humidOnshoreFlow = smoothstep(0.14, 0.30, relativeHumidity);
+      float tropicalHumidOnshoreFlow = smoothstep(0.28, 0.38, relativeHumidity);
+      float temperateHumidOnshoreFlow = smoothstep(0.12, 0.26, relativeHumidity)
+        * smoothstep(24.0, 30.0, abs(latitude));
+      float humidOnshoreFlow = max(
+        tropicalHumidOnshoreFlow,
+        temperateHumidOnshoreFlow
+      );
       float monsoonLatitude = 1.0 - smoothstep(26.0, 40.0, abs(latitude));
       float monsoonOceanAccess = max(
-        eastwardOcean * humidOnshoreFlow,
+        humidOnshoreFlow,
         equatorwardOcean * plateauMonsoon
       );
       float monsoonAscent = seasonalLandHeating
         * monsoonLatitude
         * monsoonOceanAccess;
+      float monsoonFlowSupport = 1.0 - smoothstep(0.0, 0.10, divergence);
+      monsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       float monsoonOrography = max(orographicLift, polewardRelief);
       float rainfallEfficiency = clamp(
         0.35
@@ -665,7 +692,17 @@ export const shaders = {
         1.60
       );
       float convectivePrecipitation = waterVapor * 14000.0 * rainfallEfficiency;
-      float inversionStrength = smoothstep(0.04, 0.20, marineStability);
+      if (height >= waterLevel) {
+        float humiditySupport = smoothstep(0.10, 0.28, relativeHumidity);
+        float dryLandLatitude = smoothstep(8.0, 16.0, abs(latitude))
+          * (1.0 - smoothstep(24.0, 30.0, abs(latitude)));
+        convectivePrecipitation *= mix(
+          1.0,
+          mix(0.10, 1.0, humiditySupport),
+          dryLandLatitude
+        );
+      }
+      float inversionStrength = marineStability / (marineStability + 0.12);
       convectivePrecipitation *= mix(1.0, 0.15, inversionStrength);
       float subtropicalInversion = inversionStrength * smoothstep(
         6.0,
@@ -689,6 +726,11 @@ export const shaders = {
         + terrainPrecipitation
         + monsoonTerrainPrecipitation
         + monsoonConvectivePrecipitation;
+      annualPrecipitation = mix(
+        annualPrecipitation,
+        transportedPrecipitation,
+        0.12
+      );
 
       nextWaterVapor = vec4(waterVapor, annualPrecipitation, marineStability, 0.0);
       nextWind = vec4(wind, 0.0, 0.0);
@@ -750,6 +792,11 @@ export const shaders = {
     layout(location = 2) out vec4 nextSeasonalTemperature;
     layout(location = 3) out vec4 nextSeasonalPrecipitation;
 
+    float getOceanWeight(vec2 uv) {
+      float height = texture(heightmap, uv).r;
+      return 1.0 - smoothstep(waterLevel - 0.025, waterLevel + 0.025, height);
+    }
+
     void main() {
       float temperature = texture(temperatureMap, textureCoordinate).r - 273.15;
       float waterVapor = texture(waterVaporMap, textureCoordinate).r;
@@ -772,21 +819,9 @@ export const shaders = {
       ) * step(waterLevel, height);
       float equatorwardOffset = latitude >= 0.0 ? -0.08 : 0.08;
       vec2 equatorwardCoordinate = textureCoordinate + vec2(0.0, equatorwardOffset);
-      float equatorwardOcean = max(
-        texture(heightmap, equatorwardCoordinate).r < waterLevel ? 1.0 : 0.0,
-        max(
-          texture(heightmap, equatorwardCoordinate - vec2(0.03, 0.0)).r < waterLevel ? 1.0 : 0.0,
-          texture(heightmap, equatorwardCoordinate + vec2(0.03, 0.0)).r < waterLevel ? 1.0 : 0.0
-        )
-      );
-      float equatorwardDiagonal = latitude >= 0.0 ? -0.02 : 0.02;
-      float eastwardOcean = max(
-        texture(heightmap, textureCoordinate + vec2(0.03, 0.0)).r < waterLevel ? 1.0 : 0.0,
-        texture(
-          heightmap,
-          textureCoordinate + vec2(0.03, equatorwardDiagonal)
-        ).r < waterLevel ? 1.0 : 0.0
-      );
+      float equatorwardOcean = 0.50 * getOceanWeight(equatorwardCoordinate)
+        + 0.25 * getOceanWeight(equatorwardCoordinate - vec2(0.03, 0.0))
+        + 0.25 * getOceanWeight(equatorwardCoordinate + vec2(0.03, 0.0));
       float polewardOffset = latitude >= 0.0 ? 0.08 : -0.08;
       float polewardHeight = texture(
         heightmap,
@@ -794,13 +829,19 @@ export const shaders = {
       ).r;
       float polewardRelief = smoothstep(0.02, 0.18, polewardHeight - height);
       float plateauMonsoon = smoothstep(0.08, 0.14, polewardHeight - height);
-      float humidOnshoreFlow = smoothstep(0.14, 0.30, relativeHumidity);
+      float tropicalHumidOnshoreFlow = smoothstep(0.28, 0.38, relativeHumidity);
+      float temperateHumidOnshoreFlow = smoothstep(0.12, 0.26, relativeHumidity)
+        * smoothstep(24.0, 30.0, abs(latitude));
+      float humidOnshoreFlow = max(
+        tropicalHumidOnshoreFlow,
+        temperateHumidOnshoreFlow
+      );
       float monsoonLatitude = 1.0 - smoothstep(26.0, 40.0, abs(latitude));
       float monsoonPotential = seasonalLandHeating
         * monsoonLatitude
         * max(
           equatorwardOcean * plateauMonsoon,
-          eastwardOcean * humidOnshoreFlow
+          humidOnshoreFlow
         );
 
       vec4 seasonalTemperature = texture(
