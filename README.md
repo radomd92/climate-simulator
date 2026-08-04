@@ -118,8 +118,9 @@ current atmospheric state.
 ## Seasons and climate zones
 
 Automatic seasons advance solar declination through a sinusoidal model year.
-The fast setting evaluates one year in roughly three seconds after warm-up;
-the detailed setting uses twice as many fluid passes and seasonal samples.
+The detail selector offers simulated years of roughly 3, 6, 12, 20, 40, 60,
+or 120 seconds after warm-up. Longer years use proportionally more fluid passes
+and seasonal samples; actual wall-clock time depends on GPU performance.
 
 During each year, GPU textures accumulate:
 
