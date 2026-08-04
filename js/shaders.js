@@ -25,6 +25,7 @@ export const shaders = {
     uniform float solarIrradiance;
     uniform float solarDeclination;
     uniform float oceanCirculation;
+    uniform float simulationTimeStep;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 nextCurrent;
@@ -64,6 +65,10 @@ export const shaders = {
       return 0.75 * (salinity - 35.0) - 0.20 * (temperature - 288.0);
     }
 
+    float scaledFraction(float fraction) {
+      return 1.0 - pow(1.0 - clamp(fraction, 0.0, 0.999999), simulationTimeStep);
+    }
+
     void main() {
       float ocean = isOcean(textureCoordinate);
       float equilibriumTemperature = getEquilibriumTemperature(textureCoordinate);
@@ -78,7 +83,9 @@ export const shaders = {
       float latitude = getLatitude(textureCoordinate);
       float cosineLatitude = max(cos(radians(latitude)), 0.15);
       vec2 oldCurrent = texture(previousCurrent, textureCoordinate).rg;
-      vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0) * 0.00025;
+      vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0)
+        * 0.00025
+        * simulationTimeStep;
       vec2 backtracedCoordinate = textureCoordinate - oldCurrent * transportScale;
       if (isOcean(backtracedCoordinate) < 0.5) backtracedCoordinate = textureCoordinate;
 
@@ -91,8 +98,9 @@ export const shaders = {
       // Broad tropical upwelling entrains only a small fraction of deep water
       // into the mixed layer; stronger cooling is handled at eastern coasts.
       float upwelling = 0.04 * max(-texture(previousOverturning, textureCoordinate).r, 0.0);
-      temperature = mix(temperature, deepTemperature, upwelling);
-      salinity = mix(salinity, deepSalinity, upwelling);
+      float upwellingFraction = scaledFraction(upwelling);
+      temperature = mix(temperature, deepTemperature, upwellingFraction);
+      salinity = mix(salinity, deepSalinity, upwellingFraction);
 
       float temperatureNeighbors = 0.25 * (
         readTemperature(textureCoordinate - vec2(texel.x, 0.0))
@@ -106,8 +114,12 @@ export const shaders = {
         + readSalinity(textureCoordinate - vec2(0.0, texel.y))
         + readSalinity(textureCoordinate + vec2(0.0, texel.y))
       );
-      temperature = mix(temperature, temperatureNeighbors, 0.04);
-      salinity = mix(salinity, salinityNeighbors, 0.04);
+      temperature = mix(
+        temperature,
+        temperatureNeighbors,
+        0.04 * simulationTimeStep
+      );
+      salinity = mix(salinity, salinityNeighbors, 0.04 * simulationTimeStep);
 
       vec2 wind = texture(atmosphericWind, textureCoordinate).rg;
       float rotationRatio = rotationSpeed / 460.0;
@@ -116,11 +128,14 @@ export const shaders = {
       vec2 ekmanDirection = rotationDirection * hemisphere * vec2(wind.y, -wind.x);
       vec2 windDrivenTarget = wind * 0.022
         + ekmanDirection * 0.010 * min(sqrt(abs(rotationRatio)), 1.5);
-      current *= 0.992;
-      current += oceanCirculation * 0.022 * (windDrivenTarget - current);
+      current *= pow(0.992, simulationTimeStep);
+      current += simulationTimeStep
+        * oceanCirculation
+        * 0.022
+        * (windDrivenTarget - current);
 
       float coriolis = 0.020 * rotationRatio * sin(radians(latitude));
-      current += coriolis * vec2(current.y, -current.x);
+      current += simulationTimeStep * coriolis * vec2(current.y, -current.x);
 
       float densityLeft = getDensityAnomaly(textureCoordinate - vec2(texel.x, 0.0));
       float densityRight = getDensityAnomaly(textureCoordinate + vec2(texel.x, 0.0));
@@ -130,7 +145,7 @@ export const shaders = {
         (densityRight - densityLeft) / cosineLatitude,
         densityUp - densityDown
       );
-      current -= oceanCirculation * 0.012 * densityGradient;
+      current -= simulationTimeStep * oceanCirculation * 0.012 * densityGradient;
 
       float oceanLeft = isOcean(textureCoordinate - vec2(texel.x, 0.0));
       float oceanRight = isOcean(textureCoordinate + vec2(texel.x, 0.0));
@@ -162,7 +177,8 @@ export const shaders = {
       float boundaryRelaxation = boundaryLatitude * (
         0.060 * westernBoundary + 0.030 * easternBoundary
       );
-      current += oceanCirculation * boundaryRelaxation * (boundaryTarget - current);
+      current += scaledFraction(oceanCirculation * boundaryRelaxation)
+        * (boundaryTarget - current);
 
       vec2 warmSourceCoordinate = textureCoordinate - vec2(0.0, 0.08 * hemisphere);
       float warmSourceTemperature = max(
@@ -172,14 +188,15 @@ export const shaders = {
           equilibriumTemperature + 4.0 * boundaryLatitude
         )
       );
+      float warmBoundaryFraction = scaledFraction(clamp(
+        0.25 * oceanCirculation * westernBoundary * boundaryLatitude,
+        0.0,
+        0.25
+      ));
       temperature = mix(
         temperature,
         max(temperature, warmSourceTemperature),
-        clamp(
-          0.25 * oceanCirculation * westernBoundary * boundaryLatitude,
-          0.0,
-          0.25
-        )
+        warmBoundaryFraction
       );
 
       vec2 equatorwardDirection = -polewardDirection;
@@ -195,26 +212,37 @@ export const shaders = {
       temperature = mix(
         temperature,
         deepTemperature,
-        clamp(0.025 * coastalUpwelling, 0.0, 0.05)
+        scaledFraction(clamp(0.025 * coastalUpwelling, 0.0, 0.05))
       );
       salinity = mix(
         salinity,
         deepSalinity,
-        clamp(0.012 * coastalUpwelling, 0.0, 0.025)
+        scaledFraction(clamp(0.012 * coastalUpwelling, 0.0, 0.025))
       );
 
       float currentSpeed = length(current);
       if (currentSpeed > 3.0) current *= 3.0 / currentSpeed;
 
-      temperature = mix(temperature, equilibriumTemperature, 0.004);
+      temperature = mix(
+        temperature,
+        equilibriumTemperature,
+        scaledFraction(0.004)
+      );
       float precipitation = texture(precipitationMap, textureCoordinate).g;
       float evaporation = clamp(
         (temperature - 273.15) / 30.0,
         0.0,
         1.5
       ) * (1.0 + 0.03 * length(wind));
-      salinity += 0.0012 * evaporation - 0.0008 * clamp(precipitation / 200.0, 0.0, 2.0);
-      salinity = clamp(mix(salinity, 35.0, 0.0005), 30.0, 40.0);
+      salinity += simulationTimeStep * (
+        0.0012 * evaporation
+        - 0.0008 * clamp(precipitation / 200.0, 0.0, 2.0)
+      );
+      salinity = clamp(
+        mix(salinity, 35.0, scaledFraction(0.0005)),
+        30.0,
+        40.0
+      );
 
       nextCurrent = vec4(current, 0.0, 0.0);
       nextTemperature = vec4(temperature);
@@ -233,6 +261,7 @@ export const shaders = {
     uniform float waterLevel;
     uniform float rotationSpeed;
     uniform float deepOceanCirculation;
+    uniform float simulationTimeStep;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 nextDeepState;
@@ -257,6 +286,10 @@ export const shaders = {
       return getDensity(state.b, state.a);
     }
 
+    float scaledFraction(float fraction) {
+      return 1.0 - pow(1.0 - clamp(fraction, 0.0, 0.999999), simulationTimeStep);
+    }
+
     void main() {
       if (isOcean(textureCoordinate) < 0.5) {
         nextDeepState = vec4(0.0, 0.0, 277.0, 34.7);
@@ -268,7 +301,9 @@ export const shaders = {
       float latitude = (2.0 * textureCoordinate.y - 1.0) * 90.0;
       float cosineLatitude = max(cos(radians(latitude)), 0.15);
       vec4 oldState = readDeepState(textureCoordinate);
-      vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0) * 0.00008;
+      vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0)
+        * 0.00008
+        * simulationTimeStep;
       vec2 backtracedCoordinate = textureCoordinate - oldState.rg * transportScale;
       if (isOcean(backtracedCoordinate) < 0.5) backtracedCoordinate = textureCoordinate;
 
@@ -284,17 +319,18 @@ export const shaders = {
       temperature = mix(
         temperature,
         0.25 * (stateLeft.b + stateRight.b + stateDown.b + stateUp.b),
-        0.015
+        0.015 * simulationTimeStep
       );
       salinity = mix(
         salinity,
         0.25 * (stateLeft.a + stateRight.a + stateDown.a + stateUp.a),
-        0.015
+        0.015 * simulationTimeStep
       );
 
       vec2 surfaceVelocity = texture(surfaceCurrent, textureCoordinate).rg;
-      current *= 0.996;
-      current += deepOceanCirculation * 0.004 * (-0.20 * surfaceVelocity - current);
+      current *= pow(0.996, simulationTimeStep);
+      current += scaledFraction(deepOceanCirculation * 0.004)
+        * (-0.20 * surfaceVelocity - current);
 
       float densityLeft = getDeepDensity(textureCoordinate - vec2(texel.x, 0.0));
       float densityRight = getDeepDensity(textureCoordinate + vec2(texel.x, 0.0));
@@ -304,11 +340,14 @@ export const shaders = {
         (densityRight - densityLeft) / cosineLatitude,
         densityUp - densityDown
       );
-      current -= deepOceanCirculation * 0.003 * densityGradient;
+      current -= simulationTimeStep
+        * deepOceanCirculation
+        * 0.003
+        * densityGradient;
 
       float rotationRatio = rotationSpeed / 460.0;
       float coriolis = 0.004 * rotationRatio * sin(radians(latitude));
-      current += coriolis * vec2(current.y, -current.x);
+      current += simulationTimeStep * coriolis * vec2(current.y, -current.x);
 
       float oceanLeft = isOcean(textureCoordinate - vec2(texel.x, 0.0));
       float oceanRight = isOcean(textureCoordinate + vec2(texel.x, 0.0));
@@ -336,11 +375,16 @@ export const shaders = {
       float overturning = deepOceanCirculation * clamp(sinking - upwelling, -0.015, 0.025);
 
       if (overturning > 0.0) {
-        temperature = mix(temperature, surfaceTemp, overturning);
-        salinity = mix(salinity, surfaceSalt, overturning);
+        float exchangeFraction = scaledFraction(overturning);
+        temperature = mix(temperature, surfaceTemp, exchangeFraction);
+        salinity = mix(salinity, surfaceSalt, exchangeFraction);
       }
-      temperature = mix(temperature, 277.0, 0.0002);
-      salinity = clamp(mix(salinity, 34.7, 0.0002), 30.0, 40.0);
+      temperature = mix(temperature, 277.0, scaledFraction(0.0002));
+      salinity = clamp(
+        mix(salinity, 34.7, scaledFraction(0.0002)),
+        30.0,
+        40.0
+      );
 
       nextDeepState = vec4(current, temperature, salinity);
       nextOverturning = vec4(overturning, 0.0, 0.0, 0.0);
@@ -362,6 +406,7 @@ export const shaders = {
     uniform float globalCirculation;
     uniform float solarIrradiance;
     uniform float solarDeclination;
+    uniform float simulationTimeStep;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 nextWaterVapor;
@@ -388,6 +433,16 @@ export const shaders = {
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
       temperature += seasonality * 12.0;
       return max(temperature * solarIrradiance / 1361.0, 271.0);
+    }
+
+    float getAnnualOceanEquilibriumTemperature(float latitude) {
+      float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
+      float temperature = 273.15 + mix(-45.0, 30.0, solarFactor) - 3.0;
+      return max(temperature * solarIrradiance / 1361.0, 271.0);
+    }
+
+    float scaledFraction(float fraction) {
+      return 1.0 - pow(1.0 - clamp(fraction, 0.0, 0.999999), simulationTimeStep);
     }
 
     float getSurfaceTemperature(vec2 uv) {
@@ -474,7 +529,9 @@ export const shaders = {
       float terrainSlope = length(terrainGradient);
 
       vec2 oldWind = texture(previousWind, textureCoordinate).rg;
-      vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0) * 0.00002;
+      vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0)
+        * 0.00002
+        * simulationTimeStep;
       vec2 backtracedCoordinate = textureCoordinate - oldWind * transportScale;
       vec2 wind = texture(previousWind, backtracedCoordinate).rg;
       float pressure = texture(previousPressure, textureCoordinate).r;
@@ -500,7 +557,8 @@ export const shaders = {
       vec2 coriolisAcceleration = coriolis * vec2(wind.y, -wind.x);
       vec2 pressureAcceleration = -35.0 * pressureGradient;
       float drag = mix(0.985, 0.960, smoothstep(waterLevel, 1.0, height));
-      wind = wind * drag + pressureAcceleration + coriolisAcceleration;
+      wind = wind * pow(drag, simulationTimeStep)
+        + simulationTimeStep * (pressureAcceleration + coriolisAcceleration);
 
       // Large-scale circulation is a weak relaxation target, not a fixed
       // velocity. Thermal pressure gradients can still create monsoons and
@@ -508,7 +566,7 @@ export const shaders = {
       vec2 globalWind = getGlobalWind(latitude);
       float circulationCoupling = globalCirculation
         * mix(0.018, 0.008, smoothstep(waterLevel, 1.0, height));
-      wind += circulationCoupling * (globalWind - wind);
+      wind += scaledFraction(circulationCoupling) * (globalWind - wind);
 
       if (height >= waterLevel && terrainSlope > 0.0) {
         vec2 terrainNormal = terrainGradient / terrainSlope;
@@ -517,7 +575,9 @@ export const shaders = {
           * smoothstep(0.05, 0.30, elevation);
         // Strong mountain faces retain 45% of the uphill component. Pressure
         // gradients route the blocked 55% along lower surrounding terrain.
-        wind -= 0.55 * mountainBlocking * uphillWind * terrainNormal;
+        wind -= scaledFraction(0.55 * mountainBlocking)
+          * uphillWind
+          * terrainNormal;
       }
 
       float windSpeed = length(wind);
@@ -526,9 +586,11 @@ export const shaders = {
       float pressureLaplacian = pressureLeft + pressureRight
         + pressureDown + pressureUp - 4.0 * pressure;
       float equilibriumPressure = getEquilibriumPressure(textureCoordinate);
-      pressure += 0.02 * (equilibriumPressure - pressure)
-        - 0.00002 * divergence
-        + 0.20 * pressureLaplacian;
+      pressure += scaledFraction(0.02) * (equilibriumPressure - pressure)
+        + simulationTimeStep * (
+          -0.00002 * divergence
+          + 0.20 * pressureLaplacian
+        );
       pressure = clamp(pressure, 0.65, 1.35);
 
       vec2 moistureCoordinate = textureCoordinate - wind * transportScale;
@@ -555,21 +617,25 @@ export const shaders = {
       float waterVapor = transportedMoisture.r;
       // Small-scale atmospheric turbulence moves humidity across adjacent
       // streamlines instead of confining it to a single wind trajectory.
-      waterVapor = mix(waterVapor, neighboringMoisture.r, 0.15);
+      waterVapor = mix(
+        waterVapor,
+        neighboringMoisture.r,
+        0.15 * simulationTimeStep
+      );
       float marineStability = mix(
         transportedMoisture.b,
         neighboringMoisture.b,
-        0.20
+        0.20 * simulationTimeStep
       );
       float transportedPrecipitation = mix(
         transportedMoisture.g,
         neighboringMoisture.g,
-        0.50
+        0.50 * simulationTimeStep
       );
       float marineMoisture = mix(
         transportedMoisture.a,
         neighboringMoisture.a,
-        0.15
+        0.15 * simulationTimeStep
       );
       float temperature = getSurfaceTemperature(textureCoordinate);
       windSpeed = length(wind);
@@ -595,17 +661,24 @@ export const shaders = {
         float evaporationRate = evaporationCoefficient * (
           saturatedHumidityRatio - humidityRatio
         );
-        waterVapor += 0.0000015 * evaporationRate * max(windSpeed, 0.5);
-        float coldSstAnomaly = max(
-          getOceanEquilibriumTemperature(latitude) - temperature,
-          0.0
+        waterVapor += simulationTimeStep
+          * 0.0000015
+          * evaporationRate
+          * max(windSpeed, 0.5);
+        float seasonalOceanEquilibrium = getOceanEquilibriumTemperature(latitude);
+        float annualOceanEquilibrium = getAnnualOceanEquilibriumTemperature(latitude);
+        float inversionReference = mix(
+          seasonalOceanEquilibrium,
+          min(seasonalOceanEquilibrium, annualOceanEquilibrium),
+          0.75
         );
+        float coldSstAnomaly = max(inversionReference - temperature, 0.0);
         marineStability = mix(
           marineStability,
           clamp(coldSstAnomaly / 10.0, 0.0, 1.0),
-          0.12
+          scaledFraction(0.12)
         );
-        marineMoisture = mix(marineMoisture, 1.0, 0.08);
+        marineMoisture = mix(marineMoisture, 1.0, scaledFraction(0.08));
       } else {
         float upslope = max(
           dot(normalize(wind + vec2(0.0001)), normalize(terrainGradient + vec2(0.0001))),
@@ -618,11 +691,19 @@ export const shaders = {
         // still produce strong rain shadows.
         float condensation = 0.0002 + 0.0008 * elevation + 0.06 * upslope;
         float waterBeforeCondensation = waterVapor;
-        waterVapor *= 1.0 - clamp(condensation, 0.0, 0.15);
-        condensedWater = max(waterBeforeCondensation - waterVapor, 0.0);
+        float condensationFraction = clamp(condensation, 0.0, 0.15);
+        waterVapor *= pow(1.0 - condensationFraction, simulationTimeStep);
+        condensedWater = max(waterBeforeCondensation - waterVapor, 0.0)
+          / max(simulationTimeStep, 0.000001);
         float daytimeHeating = clamp((temperature - 285.0) / 20.0, 0.0, 1.0);
-        marineStability *= mix(0.985, 0.960, daytimeHeating);
-        marineMoisture *= mix(0.997, 0.990, daytimeHeating);
+        marineStability *= pow(
+          mix(0.985, 0.960, daytimeHeating),
+          simulationTimeStep
+        );
+        marineMoisture *= pow(
+          mix(0.997, 0.990, daytimeHeating),
+          simulationTimeStep
+        );
       }
 
       waterVapor = max(waterVapor, 0.0001);
@@ -691,7 +772,7 @@ export const shaders = {
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
       );
-      float monsoonLatitude = 1.0 - smoothstep(26.0, 40.0, abs(latitude));
+      float monsoonLatitude = 1.0 - smoothstep(28.0, 44.0, abs(latitude));
       float plateauMonsoonAccess = equatorwardOcean * plateauMonsoon;
       float monsoonOceanAccess = max(
         humidOnshoreFlow,
@@ -763,17 +844,18 @@ export const shaders = {
         * monsoonAscent
         * monsoonOrography
         * monsoonInversionFactor;
+      float marineMonsoonTerrainFactor = 0.60 + 0.40 * monsoonOrography;
       float monsoonConvectivePrecipitation = 950.0
         * plateauMonsoonAscent
         * (0.30 + 0.70 * monsoonOrography)
         * monsoonInversionFactor
         + 950.0
         * temperateMonsoonAscent
-        * (0.30 + 0.70 * monsoonOrography)
+        * marineMonsoonTerrainFactor
         * monsoonInversionFactor
-        + 650.0
+        + 900.0
         * deepMarineMonsoonAscent
-        * (0.30 + 0.70 * monsoonOrography)
+        * marineMonsoonTerrainFactor
         * monsoonInversionFactor;
       float annualPrecipitation = convectivePrecipitation
         + terrainPrecipitation
@@ -782,7 +864,7 @@ export const shaders = {
       annualPrecipitation = mix(
         annualPrecipitation,
         transportedPrecipitation,
-        0.20
+        pow(0.20, simulationTimeStep)
       );
 
       nextWaterVapor = vec4(
@@ -835,20 +917,14 @@ export const shaders = {
     uniform sampler2D waterVaporMap;
     uniform sampler2D previousStatsA;
     uniform sampler2D previousStatsB;
-    uniform sampler2D previousSeasonalTemperature;
-    uniform sampler2D previousSeasonalPrecipitation;
     uniform sampler2D heightmap;
     uniform float sampleCount;
-    uniform float seasonSampleCount;
-    uniform int seasonIndex;
     uniform float solarDeclination;
     uniform float waterLevel;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 nextStatsA;
     layout(location = 1) out vec4 nextStatsB;
-    layout(location = 2) out vec4 nextSeasonalTemperature;
-    layout(location = 3) out vec4 nextSeasonalPrecipitation;
 
     float getOceanWeight(vec2 uv) {
       float height = texture(heightmap, uv).r;
@@ -909,54 +985,13 @@ export const shaders = {
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
       );
-      float monsoonLatitude = 1.0 - smoothstep(26.0, 40.0, abs(latitude));
+      float monsoonLatitude = 1.0 - smoothstep(28.0, 44.0, abs(latitude));
       float monsoonPotential = seasonalLandHeating
         * monsoonLatitude
         * max(
           equatorwardOcean * plateauMonsoon,
           humidOnshoreFlow
         );
-
-      vec4 seasonalTemperature = texture(
-        previousSeasonalTemperature,
-        textureCoordinate
-      );
-      vec4 seasonalPrecipitation = texture(
-        previousSeasonalPrecipitation,
-        textureCoordinate
-      );
-      float seasonWeight = 1.0 / (seasonSampleCount + 1.0);
-      if (seasonIndex == 0) {
-        seasonalTemperature.r = mix(seasonalTemperature.r, temperature, seasonWeight);
-        seasonalPrecipitation.r = mix(
-          seasonalPrecipitation.r,
-          precipitation,
-          seasonWeight
-        );
-      } else if (seasonIndex == 1) {
-        seasonalTemperature.g = mix(seasonalTemperature.g, temperature, seasonWeight);
-        seasonalPrecipitation.g = mix(
-          seasonalPrecipitation.g,
-          precipitation,
-          seasonWeight
-        );
-      } else if (seasonIndex == 2) {
-        seasonalTemperature.b = mix(seasonalTemperature.b, temperature, seasonWeight);
-        seasonalPrecipitation.b = mix(
-          seasonalPrecipitation.b,
-          precipitation,
-          seasonWeight
-        );
-      } else {
-        seasonalTemperature.a = mix(seasonalTemperature.a, temperature, seasonWeight);
-        seasonalPrecipitation.a = mix(
-          seasonalPrecipitation.a,
-          precipitation,
-          seasonWeight
-        );
-      }
-      nextSeasonalTemperature = seasonalTemperature;
-      nextSeasonalPrecipitation = seasonalPrecipitation;
 
       if (sampleCount < 0.5) {
         nextStatsA = vec4(temperature, temperature, temperature, precipitation);
@@ -985,6 +1020,27 @@ export const shaders = {
         mix(statsB.b, warmSeason ? precipitation : 0.0, sampleWeight),
         max(statsB.a, monsoonPotential)
       );
+    }
+  `,
+
+  monthlyClimateFragment: `#version 300 es
+    precision highp float;
+
+    uniform sampler2D temperatureMap;
+    uniform sampler2D waterVaporMap;
+
+    in vec2 textureCoordinate;
+    layout(location = 0) out vec4 monthlyTemperature;
+    layout(location = 1) out vec4 monthlyPrecipitation;
+
+    void main() {
+      float temperature = texture(temperatureMap, textureCoordinate).r - 273.15;
+      float precipitation = max(
+        texture(waterVaporMap, textureCoordinate).g / 12.0,
+        0.0
+      );
+      monthlyTemperature = vec4(temperature);
+      monthlyPrecipitation = vec4(precipitation);
     }
   `,
 

@@ -65,7 +65,10 @@ inversions outside the deep tropics also cap terrain and monsoon rainfall,
 preventing generic mountain uplift from making the Atacama or Namib wet while
 leaving low-stability equatorial and Indian monsoon coasts largely unaffected.
 The precipitation response uses a continuous saturating inversion strength,
-avoiding a hard rainfall threshold between neighboring coastal cells.
+avoiding a hard rainfall threshold between neighboring coastal cells. The
+inversion source compares SST with the cooler of the seasonal and annual
+equilibrium temperatures, so ordinary warm-season ocean lag is not mistaken
+for persistent cold-current upwelling.
 Low-latitude overturning entrains deep water weakly into the broad ocean mixed
 layer; concentrated eastern-boundary upwelling supplies the stronger coastal
 cooling. This avoids applying a cold-current inversion to all tropical oceans.
@@ -93,8 +96,8 @@ precipitation rate from `0` to `300+ cm/year`; it is not the completed annual
 total. It combines atmospheric humidity with ascent, subsidence, convergence,
 monsoon convection, terrain condensation, and cold coastal upwelling effects;
 it is distinct from the atmospheric Water vapor display. The selected-point
-charts convert each quarter's mean rate into centimeters per season and sum the
-four periods for the annual total.
+charts convert annualized rates into twelve equal-length model-month totals and
+sum those months for the annual total.
 
 Outside the deep tropics, prescribed ascent over land is limited by simulated
 convergence and boundary-layer relative humidity. This keeps warm seas near a
@@ -119,20 +122,24 @@ current atmospheric state.
 
 Automatic seasons advance solar declination through a sinusoidal model year.
 The detail selector offers simulated years of roughly 3, 6, 12, 20, 40, 60,
-or 120 seconds after warm-up. Longer years use proportionally more fluid passes
-and seasonal samples; actual wall-clock time depends on GPU performance.
+or 120 seconds after warm-up. Each mode covers the same amount of modeled
+atmosphere and ocean time: short years use larger transport and relaxation
+steps, while long years use smaller steps and collect more seasonal samples.
+Sub-quarter solver steps are accumulated before a GPU update to avoid excess
+interpolation diffusion in the longest modes. The three-second mode is the
+reference timestep. Actual wall-clock time depends on GPU performance.
 
 During each year, GPU textures accumulate:
 
 - coldest, warmest, and mean temperature;
 - mean annual, driest, and wettest precipitation;
 - warm-season and cold-season precipitation shares; and
-- mean temperature and precipitation for Mar-May, Jun-Aug, Sep-Nov, and
-  Dec-Feb.
+- mean temperature and precipitation for twelve equal-length model months.
 
-Click the map to inspect any cell. The selected-point panel reads these four
-seasonal bins directly from the GPU and displays temperature and precipitation
-charts, exact values, local-hemisphere season names, coordinates, and an annual
+Click the map to inspect any cell. The selected-point panel reads all twelve
+monthly bins and the classified climate-zone color directly from the GPU. It
+displays monthly temperature and precipitation charts, exact values,
+local-hemisphere season names, coordinates, a Köppen-like type, and an annual
 summary. The arrow keys move a focused map selection; hold Shift for larger
 steps. The first pattern fills progressively during the first automatic climate
 year and remains available while subsequent years refine the climatology.
@@ -141,11 +148,12 @@ At the end of the year these values are classified into a Köppen-like map.
 The implementation includes tropical rainforest, monsoon, and savanna zones;
 hot and cold desert/steppe zones; temperate and continental zones with
 seasonal rainfall; and tundra/ice-cap zones. It follows Köppen-style thresholds
-but remains an approximation because the simulator does not model twelve
-discrete observed months or a vertically resolved atmosphere. The map uses the
-exact 30-class RGB palette published by Beck et al. (2023). Annual-mean
-temperature provides a proxy for the monthly warm-season count used to separate
-the `b` and `c` thermal subclasses.
+but remains an approximation because the point panel's months are equal-length
+model bins, while classification uses sampled annual statistics rather than
+observed calendar-month normals. The atmosphere is not vertically resolved.
+The map uses the exact 30-class RGB palette published by Beck et al. (2023).
+Annual-mean temperature provides a proxy for the monthly warm-season count used
+to separate the `b` and `c` thermal subclasses.
 
 Monsoon classification also records a seasonal potential based on summer
 continental heating, transported relative humidity, convergence, and
@@ -153,6 +161,12 @@ equatorward ocean access reinforced by a strong poleward plateau. Separate
 cool-winter and warm monsoon thresholds prevent the subtropical desert belt
 from overriding windward East Asian climates without granting the same
 exception to warm desert interiors.
+
+Humid lowland marine monsoons retain a rainfall floor without requiring nearby
+high relief, and the temperate monsoon taper reaches into the mid-latitudes.
+Both remain gated by transported relative humidity, recent marine provenance,
+seasonal land heating, and simulated flow, improving East Asian rainfall
+without a fixed China or east-coast mask.
 
 ## Run locally
 
@@ -170,6 +184,15 @@ resolution with URL parameters, for example:
 ```text
 http://localhost:8000/?width=1024&height=512
 ```
+
+## Deploy to GitHub Pages
+
+The Pages workflow validates the JavaScript and builds a static artifact for
+every pull request targeting `main`. Pushes to `main` and manual workflow runs
+also deploy that artifact to GitHub Pages.
+
+In the repository settings, select **GitHub Actions** as the source under
+**Pages**. The deployment does not require a package install or build tool.
 
 ## Structure
 

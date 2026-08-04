@@ -461,7 +461,14 @@ input[type="checkbox"] {
 }
 
 #point-climate-summary {
+  grid-column: 1 / -1;
   color: var(--muted);
+}
+
+.point-climate-type {
+  color: var(--accent);
+  font-weight: 700;
+  text-align: right;
 }
 
 .point-climate-status {
@@ -515,6 +522,10 @@ input[type="checkbox"] {
   fill: currentColor;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
+}
+
+.point-chart-month-label {
+  font-size: 9px;
 }
 
 .point-chart-temperature-line {
@@ -840,6 +851,10 @@ footer {
 
   .point-climate-location p + p {
     margin-top: 0.3rem;
+  }
+
+  .point-climate-type {
+    text-align: left;
   }
 
   .primary-button {

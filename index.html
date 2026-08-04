@@ -190,7 +190,7 @@
             width="1366"
             height="683"
             tabindex="0"
-            aria-label="Interactive climate map. Click a location, or use the arrow keys, to inspect its seasonal climate."
+            aria-label="Interactive climate map. Click a location, or use the arrow keys, to inspect its monthly climate."
             aria-describedby="map-interaction-hint"
           >
             Your browser does not support HTML canvas.
@@ -225,18 +225,19 @@
           <header class="point-climate-heading">
             <div>
               <p class="eyebrow">Selected location</p>
-              <h3 id="point-climate-heading">Seasonal point climate</h3>
+              <h3 id="point-climate-heading">Monthly point climate</h3>
             </div>
             <button id="clear-map-selection" type="button" hidden>Clear point</button>
           </header>
 
           <p id="map-interaction-hint" class="point-climate-empty">
-            Click anywhere on the map to compare temperature and precipitation through the year.
+            Click anywhere on the map for monthly temperature, precipitation, and climate type.
           </p>
 
           <div id="point-climate-data" hidden>
             <div class="point-climate-location">
               <p id="point-climate-coordinates"></p>
+              <p id="point-climate-type" class="point-climate-type"></p>
               <p id="point-climate-summary"></p>
               <p id="point-climate-status" class="point-climate-status"></p>
             </div>
@@ -248,16 +249,16 @@
                   id="point-temperature-chart"
                   viewBox="0 0 420 190"
                   role="img"
-                  aria-label="Seasonal mean temperature chart"
+                  aria-label="Monthly mean temperature chart"
                 ></svg>
               </figure>
               <figure>
-                <figcaption>Precipitation <span>cm per season</span></figcaption>
+                <figcaption>Precipitation <span>cm per model month</span></figcaption>
                 <svg
                   id="point-precipitation-chart"
                   viewBox="0 0 420 190"
                   role="img"
-                  aria-label="Seasonal precipitation chart"
+                  aria-label="Monthly precipitation chart"
                 ></svg>
               </figure>
             </div>
@@ -266,7 +267,7 @@
               <table class="point-climate-table">
                 <thead>
                   <tr>
-                    <th scope="col">Period</th>
+                    <th scope="col">Month</th>
                     <th scope="col">Local season</th>
                     <th scope="col">Mean temperature</th>
                     <th scope="col">Precipitation</th>
@@ -291,7 +292,7 @@
         <div class="legend" id="precipitation-legend" hidden>
           <div class="gradient precipitation-gradient"></div>
           <div class="legend-scale"><span>0 cm/year</span><span>100 cm/year</span><span>300+ cm/year</span></div>
-          <p class="legend-note">Current seasonal rate, annualized. Point charts show each season's total.</p>
+          <p class="legend-note">Current seasonal rate, annualized. Point charts show each model month's total.</p>
         </div>
 
         <div class="biome-legend" id="biome-legend">
@@ -367,7 +368,7 @@
         <li>Temperature is calculated locally and the planet has a fixed spherical radius.</li>
         <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>
         <li>Seasonal forcing is represented by solar declination rather than a full orbital model.</li>
-        <li>Climate zones use Köppen-like thresholds over a simulated year, not observational monthly normals.</li>
+        <li>Point climatology uses equal-length model months; climate zones remain an approximation of observational normals.</li>
         <li>The empirical parameters are tuned to resemble Earth and are not resolution-independent.</li>
       </ul>
     </section>
