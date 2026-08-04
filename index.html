@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta
+    name="description"
+    content="A WebGL climate simulator for experimenting with planetary heightmaps."
+  >
+  <title>Climate Simulator</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23a4f06e'/%3E%3Cpath d='M3 16h26M16 2c5 5 5 23 0 28M16 2c-5 5-5 23 0 28' fill='none' stroke='%2307100f' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">Planetary model</p>
+      <h1>Climate Simulator</h1>
+      <p class="lede">
+        Upload a heightmap and explore an approximate steady-state model of water vapor,
+        temperature, biomes, and prevailing wind.
+      </p>
+    </div>
+    <a class="source-link" href="https://space.geometrian.com/calcs/climate-sim.php">
+      Original Space Calc project
+    </a>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="about-heading">
+      <div>
+        <p class="eyebrow">About the model</p>
+        <h2 id="about-heading">A fast visual approximation</h2>
+      </div>
+      <div>
+        <p>
+          Planetary climate is complex. This simulation approximates six atmospheric
+          convection bands, their Coriolis-driven winds, and the movement of moisture
+          over oceans and terrain.
+        </p>
+        <p>
+          The formulas are intentionally simple and tuned against Earth. The result is
+          useful for world-building and experimentation, but it is not a fluid-dynamics
+          or weather-forecasting model.
+        </p>
+      </div>
+    </section>
+
+    <section class="simulator" aria-labelledby="simulator-heading">
+      <aside class="control-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">Inputs</p>
+          <h2 id="simulator-heading">Planet setup</h2>
+        </div>
+
+        <div class="control-group">
+          <label for="heightmap">Heightmap</label>
+          <input id="heightmap" type="file" accept="image/*">
+          <p class="hint">Use a 2:1 equirectangular grayscale image.</p>
+        </div>
+
+        <div class="control-group">
+          <label for="water-level">Water level</label>
+          <div class="input-with-unit">
+            <input id="water-level" type="number" min="0" max="1" step="0.01" value="0.5">
+            <span>height value</span>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="rotation-speed">Equatorial rotation speed</label>
+          <div class="input-with-select">
+            <input id="rotation-speed" type="number" step="any" value="460">
+            <select id="rotation-unit" aria-label="Rotation speed unit">
+              <option value="0.001">mm/s</option>
+              <option value="1" selected>m/s</option>
+              <option value="1000">km/s</option>
+              <option value="0.2777777777777778">km/h</option>
+              <option value="0.3048">ft/s</option>
+              <option value="0.44704">mph</option>
+              <option value="0.5144444444444445">kn</option>
+              <option value="299792458">c</option>
+            </select>
+          </div>
+          <p class="hint">A negative value represents retrograde rotation.</p>
+        </div>
+
+        <div class="control-group">
+          <label for="global-circulation">Global circulation strength</label>
+          <div class="input-with-unit">
+            <input
+              id="global-circulation"
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              value="1"
+            >
+            <span>Earth-like</span>
+          </div>
+          <p class="hint">Controls trade easterlies, mid-latitude westerlies, and polar easterlies.</p>
+        </div>
+
+        <div class="control-group">
+          <label for="ocean-circulation">Ocean circulation strength</label>
+          <div class="input-with-unit">
+            <input
+              id="ocean-circulation"
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              value="1"
+            >
+            <span>Earth-like</span>
+          </div>
+          <p class="hint">Controls wind-driven currents, density flow, and ocean heat transport.</p>
+        </div>
+
+        <div class="control-group">
+          <label for="deep-ocean-circulation">Deep overturning strength</label>
+          <div class="input-with-unit">
+            <input
+              id="deep-ocean-circulation"
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              value="1"
+            >
+            <span>Earth-like</span>
+          </div>
+          <p class="hint">Controls high-latitude sinking, tropical upwelling, and deep return flow.</p>
+        </div>
+
+        <div class="control-group">
+          <label for="insolation">Solar irradiance</label>
+          <div class="input-with-select">
+            <input id="insolation" type="number" min="0" step="any" value="1361">
+            <select id="insolation-unit" aria-label="Solar irradiance unit">
+              <option value="1" selected>W/m²</option>
+              <option value="1361">Earth suns</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="solar-declination">Solar declination</label>
+          <div class="input-with-unit">
+            <input
+              id="solar-declination"
+              type="number"
+              min="-23.5"
+              max="23.5"
+              step="0.5"
+              value="0"
+            >
+            <span>degrees</span>
+          </div>
+          <p class="hint">Positive values produce northern summer; negative values produce southern summer.</p>
+          <label class="checkbox-control">
+            <input id="auto-seasons" type="checkbox" checked>
+            Cycle seasons automatically
+          </label>
+          <label class="compact-label" for="season-speed">Seasonal simulation</label>
+          <select id="season-speed" class="full-width-select">
+            <option value="480" selected>Fast · about 3 seconds/year</option>
+            <option value="960">Detailed · about 6 seconds/year</option>
+          </select>
+          <p id="season-position" class="season-position">March equinox</p>
+        </div>
+
+        <fieldset class="control-group presets">
+          <legend>Presets</legend>
+          <button type="button" data-preset="earth">Earth</button>
+          <button type="button" data-preset="retrograde">Retrograde Earth</button>
+          <button type="button" data-preset="cassini">Cassini Earth</button>
+        </fieldset>
+      </aside>
+
+      <div class="viewport-panel">
+        <div class="canvas-frame">
+          <canvas id="climate-canvas" width="1366" height="683">
+            Your browser does not support HTML canvas.
+          </canvas>
+          <div id="loading-status" class="canvas-status" role="status">Loading simulation…</div>
+        </div>
+
+        <div class="view-toolbar" aria-label="Map display">
+          <div class="view-modes">
+            <label><input type="radio" name="view-mode" value="0"> Heightmap</label>
+            <label><input type="radio" name="view-mode" value="1"> Water vapor</label>
+            <label><input type="radio" name="view-mode" value="2"> Temperature</label>
+            <label><input type="radio" name="view-mode" value="3" checked> Biomes</label>
+            <label><input type="radio" name="view-mode" value="4"> Wind</label>
+            <label><input type="radio" name="view-mode" value="5"> Air pressure</label>
+            <label><input type="radio" name="view-mode" value="6"> Climate zones</label>
+            <label><input type="radio" name="view-mode" value="7"> Ocean currents</label>
+            <label><input type="radio" name="view-mode" value="8"> Deep currents</label>
+          </div>
+          <div class="simulation-actions">
+            <label class="simulation-progress" for="simulation-progress">
+              <span id="simulation-progress-label">Settling climate</span>
+              <progress id="simulation-progress" max="600" value="0">0%</progress>
+            </label>
+            <button id="download-map" class="primary-button" type="button">Download map</button>
+          </div>
+        </div>
+
+        <div class="legend" id="water-vapor-legend" hidden>
+          <div class="gradient water-vapor-gradient"></div>
+          <div class="legend-scale"><span>0 cm</span><span>3 cm</span><span>6 cm</span></div>
+        </div>
+
+        <div class="legend" id="temperature-legend" hidden>
+          <div class="gradient temperature-gradient"></div>
+          <div class="legend-scale"><span>−50 °C</span><span>−10 °C</span><span>30 °C</span></div>
+        </div>
+
+        <div class="biome-legend" id="biome-legend">
+          <a class="ice" href="https://en.wikipedia.org/wiki/Tundra">Ice / Tundra</a>
+          <a class="taiga" href="https://en.wikipedia.org/wiki/Taiga">Taiga</a>
+          <a class="temperate-rainforest" href="https://en.wikipedia.org/wiki/Temperate_rainforest">Temperate rainforest</a>
+          <a class="seasonal-forest" href="https://en.wikipedia.org/wiki/Temperate_broadleaf_and_mixed_forest">Seasonal forest</a>
+          <a class="tropical-rainforest" href="https://en.wikipedia.org/wiki/Tropical_rainforest">Tropical rainforest</a>
+          <a class="shrubland" href="https://en.wikipedia.org/wiki/Shrubland">Shrubland</a>
+          <a class="grassland" href="https://en.wikipedia.org/wiki/Grassland">Grassland</a>
+          <a class="savanna" href="https://en.wikipedia.org/wiki/Savanna">Savanna</a>
+          <a class="desert" href="https://en.wikipedia.org/wiki/Desert_climate">Desert</a>
+        </div>
+
+        <div class="climate-legend" id="climate-zone-legend" hidden>
+          <span class="koppen-af"><strong>Af</strong> Rainforest</span>
+          <span class="koppen-am"><strong>Am</strong> Monsoon</span>
+          <span class="koppen-aw"><strong>Aw</strong> Savanna</span>
+          <span class="koppen-bw"><strong>BW</strong> Desert</span>
+          <span class="koppen-bs"><strong>BS</strong> Steppe</span>
+          <span class="koppen-cs"><strong>Cs/Cw</strong> Seasonal</span>
+          <span class="koppen-cf"><strong>Cf</strong> Temperate</span>
+          <span class="koppen-d"><strong>D</strong> Continental</span>
+          <span class="koppen-et"><strong>ET</strong> Tundra</span>
+          <span class="koppen-ef"><strong>EF</strong> Ice cap</span>
+          <small id="climate-zone-status">Collecting the first climate year…</small>
+        </div>
+
+        <fieldset class="display-options">
+          <legend>Display overlays</legend>
+          <label><input id="show-wind-arrows" type="checkbox"> Wind / current arrows</label>
+          <label><input id="show-main-grid" type="checkbox" checked> Major grid lines</label>
+          <label><input id="show-sub-grid" type="checkbox" checked> 10° grid</label>
+          <label><input id="show-grayscale" type="checkbox"> Grayscale</label>
+          <label><input id="soften-biomes" type="checkbox" checked> Soft biome edges</label>
+        </fieldset>
+
+        <p id="error-output" class="error-output" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <section class="limitations" aria-labelledby="limitations-heading">
+      <p class="eyebrow">Model notes</p>
+      <h2 id="limitations-heading">Limitations</h2>
+      <ul>
+        <li>The atmosphere is a single shallow-water layer, without vertical circulation or weather fronts.</li>
+        <li>The ocean uses two coupled layers rather than full 3D bathymetry and does not include tides or sea ice.</li>
+        <li>Temperature is calculated locally and the planet has a fixed spherical radius.</li>
+        <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>
+        <li>Seasonal forcing is represented by solar declination rather than a full orbital model.</li>
+        <li>Climate zones use Köppen-like thresholds over a simulated year, not observational monthly normals.</li>
+        <li>The empirical parameters are tuned to resemble Earth and are not resolution-independent.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <span>Climate Simulator</span>
+    <span>Original model by Agatha Mallett</span>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
