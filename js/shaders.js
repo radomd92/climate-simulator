@@ -559,7 +559,7 @@ export const shaders = {
       float marineStability = mix(
         transportedMoisture.b,
         neighboringMoisture.b,
-        0.10
+        0.20
       );
       float transportedPrecipitation = mix(
         transportedMoisture.g,
@@ -674,11 +674,19 @@ export const shaders = {
         humidOnshoreFlow,
         equatorwardOcean * plateauMonsoon
       );
+      float reinforcedMonsoonAccess = max(
+        temperateHumidOnshoreFlow,
+        equatorwardOcean * plateauMonsoon
+      );
       float monsoonAscent = seasonalLandHeating
         * monsoonLatitude
         * monsoonOceanAccess;
+      float reinforcedMonsoonAscent = seasonalLandHeating
+        * monsoonLatitude
+        * reinforcedMonsoonAccess;
       float monsoonFlowSupport = 1.0 - smoothstep(0.0, 0.10, divergence);
       monsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
+      reinforcedMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       float monsoonOrography = max(orographicLift, polewardRelief);
       float rainfallEfficiency = clamp(
         0.35
@@ -687,7 +695,8 @@ export const shaders = {
           - 0.32 * subtropicalSubsidence
           + convergenceRain
           + 0.80 * orographicLift
-          + 1.20 * monsoonAscent,
+          + 1.20 * monsoonAscent
+          + 0.60 * reinforcedMonsoonAscent,
         0.03,
         1.60
       );
@@ -721,6 +730,10 @@ export const shaders = {
       float monsoonConvectivePrecipitation = 650.0
         * monsoonAscent
         * (0.30 + 0.70 * monsoonOrography)
+        * monsoonInversionFactor
+        + 300.0
+        * reinforcedMonsoonAscent
+        * (0.30 + 0.70 * monsoonOrography)
         * monsoonInversionFactor;
       float annualPrecipitation = convectivePrecipitation
         + terrainPrecipitation
@@ -729,7 +742,7 @@ export const shaders = {
       annualPrecipitation = mix(
         annualPrecipitation,
         transportedPrecipitation,
-        0.12
+        0.20
       );
 
       nextWaterVapor = vec4(waterVapor, annualPrecipitation, marineStability, 0.0);
@@ -959,12 +972,8 @@ export const shaders = {
       float seasonalAdjustment = warmSeasonFraction > 0.7
         ? 280.0
         : (warmSeasonFraction >= 0.3 ? 140.0 : 0.0);
-      float temperatureRangeAdjustment = 10.0 * max(
-        warmestTemperature - meanTemperature,
-        0.0
-      );
       float aridityThreshold = max(
-        20.0 * meanTemperature + seasonalAdjustment + temperatureRangeAdjustment,
+        20.0 * meanTemperature + seasonalAdjustment,
         0.0
       );
       float annualPrecipitationMm = annualPrecipitationCm * 10.0;

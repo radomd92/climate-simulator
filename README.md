@@ -17,7 +17,11 @@ Each GPU simulation pass:
   polar easterlies;
 - applies pressure-gradient acceleration and Coriolis deflection;
 - updates pressure from horizontal divergence;
-- applies surface drag and fractional terrain-slope precipitation.
+- applies surface drag and fractional terrain-slope precipitation;
+- retains 45% of the uphill wind component on strong mountain faces while
+  pressure gradients steer the blocked 55% around lower terrain; and
+- weakly blends transported precipitation between neighboring cells to prevent
+  unresolved one-pixel rainfall boundaries.
 
 Solar declination controls seasonal heating. Positive values heat northern
 continents more strongly and negative values heat southern continents,
@@ -33,7 +37,9 @@ Global circulation is a weak velocity tendency rather than a fixed wind map.
 The pressure solver can therefore bend the latitude bands around continents
 and reverse local flow during monsoons. The circulation-strength control scales
 this tendency from disabled (`0`) to twice Earth-like (`2`), and retrograde
-rotation reverses all zonal bands.
+rotation reverses all zonal bands. Monsoon moisture uses the humidity actually
+transported by this wind field rather than a fixed east- or west-ocean mask, so
+the source direction reverses with the circulation.
 
 ## Ocean model
 
@@ -54,6 +60,8 @@ follows circulation rather than a fixed distance from a coastline. Strong
 inversions outside the deep tropics also cap terrain and monsoon rainfall,
 preventing generic mountain uplift from making the Atacama or Namib wet while
 leaving low-stability equatorial and Indian monsoon coasts largely unaffected.
+The precipitation response uses a continuous saturating inversion strength,
+avoiding a hard rainfall threshold between neighboring coastal cells.
 Low-latitude overturning entrains deep water weakly into the broad ocean mixed
 layer; concentrated eastern-boundary upwelling supplies the stronger coastal
 cooling. This avoids applying a cold-current inversion to all tropical oceans.
@@ -82,6 +90,11 @@ subsidence, convergence, monsoon convection, terrain condensation, and cold
 coastal upwelling effects; it is distinct from the atmospheric Water vapor
 display.
 
+Outside the deep tropics, prescribed ascent over land is limited by simulated
+convergence and boundary-layer relative humidity. This keeps warm seas near a
+subtropical desert from automatically creating a monsoon while retaining
+convergent humid coasts and plateau-driven monsoons.
+
 Land and ocean temperatures apply seasonal anomalies around an annual
 latitude-based equilibrium rather than treating solar declination as an
 instantaneous latitude shift. Land responds more strongly than the ocean,
@@ -106,7 +119,16 @@ During each year, GPU textures accumulate:
 
 - coldest, warmest, and mean temperature;
 - mean annual, driest, and wettest precipitation;
-- warm-season and cold-season precipitation shares.
+- warm-season and cold-season precipitation shares; and
+- mean temperature and precipitation for Mar-May, Jun-Aug, Sep-Nov, and
+  Dec-Feb.
+
+Click the map to inspect any cell. The selected-point panel reads these four
+seasonal bins directly from the GPU and displays temperature and precipitation
+charts, exact values, local-hemisphere season names, coordinates, and an annual
+summary. The arrow keys move a focused map selection; hold Shift for larger
+steps. The first pattern fills progressively during the first automatic climate
+year and remains available while subsequent years refine the climatology.
 
 At the end of the year these values are classified into a Köppen-like map.
 The implementation includes tropical rainforest, monsoon, and savanna zones;
@@ -115,14 +137,12 @@ seasonal rainfall; and tundra/ice-cap zones. It follows Köppen-style thresholds
 but remains an approximation because the simulator does not model twelve
 discrete observed months or a vertically resolved atmosphere.
 
-Monsoon classification also records a seasonal geographic potential based on
-summer continental heating, an ocean sector to the east, and equatorward ocean
-access reinforced by poleward relief. Eastward sampling includes an
-equatorward diagonal so narrow islands do not block a humid coast, but it does
-not see through a continent to a distant ocean. Separate cool-winter and warm
-monsoon thresholds prevent the subtropical desert belt from overriding
-windward East Asian climates without granting the same exception to warm
-desert interiors.
+Monsoon classification also records a seasonal potential based on summer
+continental heating, transported relative humidity, convergence, and
+equatorward ocean access reinforced by a strong poleward plateau. Separate
+cool-winter and warm monsoon thresholds prevent the subtropical desert belt
+from overriding windward East Asian climates without granting the same
+exception to warm desert interiors.
 
 ## Run locally
 
