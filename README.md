@@ -23,6 +23,20 @@ Each GPU simulation pass:
 - weakly blends transported precipitation between neighboring cells to prevent
   unresolved one-pixel rainfall boundaries.
 
+Users can add any practical number of high- or low-pressure areas from the
+Simulation tab, place them by clicking the map, and move them by dragging or
+with the arrow keys. Selecting a marker also exposes a relative intensity
+control from 0.1× to 3×. The areas are rasterized into a smooth,
+longitude-wrapping pressure-forcing texture, avoiding shader uniform-count
+limits. The existing pressure-gradient and Coriolis terms therefore steer winds
+outward from highs and inward toward lows without prescribing a wind direction
+directly. Overlapping forcing is capped to keep the solver stable.
+
+Pressure maps can be exported as versioned JSON and imported again from the
+Simulation tab. Each file stores every area's high/low type, latitude,
+longitude, and relative intensity. Import validates the complete file before
+replacing the current areas, so malformed files leave the active map unchanged.
+
 Solar declination controls seasonal heating. Positive values heat northern
 continents more strongly and negative values heat southern continents,
 producing seasonal monsoon reversal through land-ocean pressure differences.
@@ -91,13 +105,16 @@ simulation grid.
 
 ## Temperature and precipitation
 
-The precipitation display maps the current season's annualized surface
+The Precipitation rate display maps the current season's annualized surface
 precipitation rate from `0` to `300+ cm/year`; it is not the completed annual
-total. It combines atmospheric humidity with ascent, subsidence, convergence,
-monsoon convection, terrain condensation, and cold coastal upwelling effects;
-it is distinct from the atmospheric Water vapor display. The selected-point
-charts convert annualized rates into twelve equal-length model-month totals and
-sum those months for the annual total.
+total. The separate Annual precipitation display sums the twelve stored running
+monthly means into a modeled total in `cm/year`. It fills progressively during
+the first automatic climate year and remains available while later years refine
+the monthly climatology. Both maps combine atmospheric humidity with ascent,
+subsidence, convergence, monsoon convection, terrain condensation, and cold
+coastal upwelling effects; they are distinct from the atmospheric Water vapor
+display. The selected-point charts use the same twelve equal-length model-month
+totals and sum those months for the annual total.
 
 Outside the deep tropics, prescribed ascent over land is limited by simulated
 convergence and boundary-layer relative humidity. This keeps warm seas near a
@@ -177,6 +194,10 @@ python3 -m http.server 8000
 ```
 
 Open <http://localhost:8000>.
+
+The control panel separates heightmap and preset selection under **World** from
+all numeric and seasonal model parameters under **Simulation**. The tabs also
+support Left/Right arrow, Home, and End keyboard navigation.
 
 The simulation defaults to 1366 × 683 pixels. Override its internal rendering
 resolution with URL parameters, for example:

@@ -20,7 +20,16 @@ const VIEW_NAMES = [
   "ocean-currents",
   "deep-ocean-currents",
   "precipitation",
+  "annual-precipitation",
 ];
+const PRESSURE_AREA_STRENGTH = 0.16;
+const PRESSURE_AREA_RADIUS_DEGREES = 24;
+const PRESSURE_FIELD_WIDTH = 512;
+const PRESSURE_FIELD_HEIGHT = 256;
+const MIN_PRESSURE_AREA_INTENSITY = 0.1;
+const MAX_PRESSURE_AREA_INTENSITY = 3;
+const PRESSURE_MAP_FORMAT = "climate-simulator-pressure-map";
+const PRESSURE_MAP_VERSION = 1;
 const DEFAULT_WIDTH = 1366;
 const DEFAULT_HEIGHT = 683;
 const WARMUP_PASS_COUNT = 600;
@@ -236,6 +245,31 @@ class Texture2D {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
+  uploadData(width, height, format, type, data) {
+    const gl = this.gl;
+    const previousFlipY = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+    this.bind();
+    // CPU arrays already use WebGL's bottom-to-top texture-coordinate order.
+    // Image assets need the global Y flip, but applying it here would mirror
+    // generated fields across the equator.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    try {
+      gl.texSubImage2D(
+        gl.TEXTURE_2D,
+        0,
+        0,
+        0,
+        width,
+        height,
+        format,
+        type,
+        data,
+      );
+    } finally {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlipY);
+    }
+  }
+
   destroy() {
     this.gl.deleteTexture(this.texture);
   }
@@ -280,6 +314,17 @@ export class ClimateSimulator {
     this.errorOutput = documentRoot.querySelector("#error-output");
     this.progress = documentRoot.querySelector("#simulation-progress");
     this.progressLabel = documentRoot.querySelector("#simulation-progress-label");
+    this.controlTabs = Array.from(documentRoot.querySelectorAll("[data-control-tab]"));
+    this.pressureAreaControls = {
+      addButtons: Array.from(documentRoot.querySelectorAll("[data-pressure-area-type]")),
+      removeButton: documentRoot.querySelector("#remove-pressure-area"),
+      intensityInput: documentRoot.querySelector("#pressure-area-intensity"),
+      importButton: documentRoot.querySelector("#import-pressure-map"),
+      exportButton: documentRoot.querySelector("#export-pressure-map"),
+      fileInput: documentRoot.querySelector("#pressure-map-file"),
+      status: documentRoot.querySelector("#pressure-area-status"),
+      markers: documentRoot.querySelector("#pressure-area-markers"),
+    };
     this.controls = {
       heightmap: documentRoot.querySelector("#heightmap"),
       waterLevel: documentRoot.querySelector("#water-level"),
@@ -310,9 +355,13 @@ export class ClimateSimulator {
       null,
       null,
       documentRoot.querySelector("#precipitation-legend"),
+      documentRoot.querySelector("#annual-precipitation-legend"),
     ];
     this.seasonPosition = documentRoot.querySelector("#season-position");
     this.climateZoneStatus = documentRoot.querySelector("#climate-zone-status");
+    this.annualPrecipitationStatus = documentRoot.querySelector(
+      "#annual-precipitation-status",
+    );
     this.pointClimate = {
       marker: documentRoot.querySelector("#map-selection-marker"),
       clearButton: documentRoot.querySelector("#clear-map-selection"),
@@ -342,12 +391,19 @@ export class ClimateSimulator {
     this.selectedPoint = null;
     this.pointReadFramebuffer = null;
     this.lastPointClimateUpdateTime = 0;
+    this.pressureAreas = [];
+    this.nextPressureAreaId = 1;
+    this.selectedPressureAreaId = null;
+    this.pendingPressureAreaType = null;
+    this.pressureForcingValues = null;
     this.rotationUnitFactor = Number(this.controls.rotationUnit.value);
     this.insolationUnitFactor = Number(this.controls.insolationUnit.value);
 
     this.configureCanvasSize();
     this.bindControls();
+    this.renderPressureAreas();
     this.updateSeasonControls();
+    this.updateAnnualPrecipitationStatus();
   }
 
   configureCanvasSize() {
@@ -360,6 +416,40 @@ export class ClimateSimulator {
   }
 
   bindControls() {
+    this.controlTabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => this.setControlTab(tab));
+      tab.addEventListener("keydown", (event) => this.handleControlTabKey(event, index));
+    });
+    this.pressureAreaControls.addButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        this.beginPressureAreaPlacement(button.dataset.pressureAreaType);
+      });
+    });
+    this.pressureAreaControls.removeButton.addEventListener("click", () => {
+      this.removeSelectedPressureArea();
+    });
+    this.pressureAreaControls.intensityInput.addEventListener("input", () => {
+      this.updateSelectedPressureAreaIntensity();
+    });
+    this.pressureAreaControls.intensityInput.addEventListener("change", () => {
+      this.updateSelectedPressureAreaIntensity({ normalizeInput: true });
+    });
+    this.pressureAreaControls.importButton.addEventListener("click", () => {
+      this.pressureAreaControls.fileInput.click();
+    });
+    this.pressureAreaControls.exportButton.addEventListener("click", () => {
+      this.exportPressureMap();
+    });
+    this.pressureAreaControls.fileInput.addEventListener("change", () => {
+      this.importPressureMapFile();
+    });
+    this.document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.pendingPressureAreaType) {
+        this.pendingPressureAreaType = null;
+        this.renderPressureAreas();
+      }
+    });
+
     this.controls.heightmap.addEventListener("change", () => this.loadUploadedHeightmap());
 
     [
@@ -419,6 +509,500 @@ export class ClimateSimulator {
     this.canvas.addEventListener("click", (event) => this.selectMapPointFromEvent(event));
     this.canvas.addEventListener("keydown", (event) => this.handleMapSelectionKey(event));
     this.pointClimate.clearButton.addEventListener("click", () => this.clearMapSelection());
+  }
+
+  setControlTab(selectedTab, focus = false) {
+    this.controlTabs.forEach((tab) => {
+      const selected = tab === selectedTab;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      const panel = this.document.getElementById(tab.getAttribute("aria-controls"));
+      panel.hidden = !selected;
+    });
+    if (focus) selectedTab.focus();
+  }
+
+  handleControlTabKey(event, currentIndex) {
+    let nextIndex;
+    if (event.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + this.controlTabs.length) % this.controlTabs.length;
+    } else if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % this.controlTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = this.controlTabs.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    this.setControlTab(this.controlTabs[nextIndex], true);
+  }
+
+  beginPressureAreaPlacement(type) {
+    this.pendingPressureAreaType = this.pendingPressureAreaType === type ? null : type;
+    this.renderPressureAreas();
+    if (this.pendingPressureAreaType) this.canvas.focus();
+  }
+
+  addPressureArea(type, horizontalPosition, verticalPosition) {
+    const area = {
+      id: this.nextPressureAreaId,
+      type,
+      horizontalPosition: Math.min(1, Math.max(0, horizontalPosition)),
+      verticalPosition: Math.min(1, Math.max(0, verticalPosition)),
+      intensity: 1,
+    };
+    this.nextPressureAreaId += 1;
+    this.pressureAreas.push(area);
+    this.pendingPressureAreaType = null;
+    this.selectedPressureAreaId = area.id;
+    this.renderPressureAreas(area.id);
+    this.updatePressureForcingTexture();
+    this.markSimulationUnsettled();
+  }
+
+  removeSelectedPressureArea() {
+    if (this.selectedPressureAreaId === null) return;
+    this.pressureAreas = this.pressureAreas.filter(
+      (area) => area.id !== this.selectedPressureAreaId,
+    );
+    this.selectedPressureAreaId = null;
+    this.renderPressureAreas();
+    this.updatePressureForcingTexture();
+    this.markSimulationUnsettled();
+  }
+
+  renderPressureAreas(focusId = null) {
+    const markers = this.pressureAreas.map((area) => {
+      const marker = this.document.createElement("button");
+      marker.type = "button";
+      marker.className = `pressure-area-marker pressure-area-marker-${area.type}`;
+      marker.dataset.pressureAreaId = String(area.id);
+      marker.style.left = `${area.horizontalPosition * 100}%`;
+      marker.style.top = `${area.verticalPosition * 100}%`;
+      marker.textContent = area.type === "high" ? "H" : "L";
+      marker.title = `${this.getPressureAreaLabel(area)}. Drag or use arrow keys to move; Delete removes.`;
+      marker.setAttribute("aria-label", marker.title);
+      marker.addEventListener("click", () => {
+        this.selectedPressureAreaId = area.id;
+        this.syncPressureAreaControls();
+      });
+      marker.addEventListener("pointerdown", (event) => {
+        this.startPressureAreaDrag(event, area.id);
+      });
+      marker.addEventListener("keydown", (event) => {
+        this.handlePressureAreaKey(event, area.id);
+      });
+      return marker;
+    });
+    this.pressureAreaControls.markers.replaceChildren(...markers);
+    this.syncPressureAreaControls();
+
+    if (focusId !== null) {
+      this.pressureAreaControls.markers
+        .querySelector(`[data-pressure-area-id="${focusId}"]`)
+        ?.focus();
+    }
+  }
+
+  syncPressureAreaControls() {
+    this.pressureAreaControls.markers
+      .querySelectorAll("[data-pressure-area-id]")
+      .forEach((marker) => {
+        const selected = Number(marker.dataset.pressureAreaId)
+          === this.selectedPressureAreaId;
+        marker.classList.toggle("selected", selected);
+        marker.setAttribute("aria-pressed", String(selected));
+      });
+    this.pressureAreaControls.addButtons.forEach((button) => {
+      const active = button.dataset.pressureAreaType === this.pendingPressureAreaType;
+      button.setAttribute("aria-pressed", String(active));
+    });
+    const selectedArea = this.pressureAreas.find(
+      (area) => area.id === this.selectedPressureAreaId,
+    );
+    this.pressureAreaControls.removeButton.disabled = !selectedArea;
+    this.pressureAreaControls.intensityInput.disabled = !selectedArea;
+    this.pressureAreaControls.exportButton.disabled =
+      this.pressureAreas.length === 0;
+    if (selectedArea) {
+      this.pressureAreaControls.intensityInput.value =
+        this.formatNumber(selectedArea.intensity);
+    }
+    this.canvas.classList.toggle(
+      "placing-pressure-area",
+      this.pendingPressureAreaType !== null,
+    );
+    this.updatePressureAreaStatus();
+  }
+
+  updatePressureAreaStatus() {
+    if (this.pendingPressureAreaType) {
+      const name = this.pendingPressureAreaType === "high" ? "high" : "low";
+      this.pressureAreaControls.status.textContent =
+        `Click the map to place a ${name}-pressure area. Press Escape to cancel.`;
+      return;
+    }
+
+    const selected = this.pressureAreas.find(
+      (area) => area.id === this.selectedPressureAreaId,
+    );
+    if (selected) {
+      this.pressureAreaControls.status.textContent =
+        `${this.getPressureAreaLabel(selected)} selected. Drag its marker or use arrow keys to move it.`;
+    } else if (this.pressureAreas.length === 0) {
+      this.pressureAreaControls.status.textContent = "No custom pressure areas.";
+    } else {
+      const noun = this.pressureAreas.length === 1 ? "area" : "areas";
+      this.pressureAreaControls.status.textContent =
+        `${this.pressureAreas.length} pressure ${noun}. Select a marker to move or remove it.`;
+    }
+  }
+
+  getPressureAreaLabel(area) {
+    const latitude = 90 - area.verticalPosition * 180;
+    const longitude = area.horizontalPosition * 360 - 180;
+    return [
+      area.type === "high" ? "High pressure" : "Low pressure",
+      `${this.formatNumber(area.intensity)}× intensity`,
+      this.formatMapCoordinate(latitude, "N", "S"),
+      this.formatMapCoordinate(longitude, "E", "W"),
+    ].join(" · ");
+  }
+
+  startPressureAreaDrag(event, id) {
+    if (event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const marker = event.currentTarget;
+    this.selectedPressureAreaId = id;
+    this.syncPressureAreaControls();
+    marker.setPointerCapture?.(event.pointerId);
+
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      const position = this.getMapPositionFromClient(
+        moveEvent.clientX,
+        moveEvent.clientY,
+      );
+      this.setPressureAreaPosition(
+        id,
+        position.horizontalPosition,
+        position.verticalPosition,
+      );
+      marker.style.left = `${position.horizontalPosition * 100}%`;
+      marker.style.top = `${position.verticalPosition * 100}%`;
+      this.updatePressureAreaStatus();
+    };
+    const end = (endEvent) => {
+      if (endEvent.pointerId !== event.pointerId) return;
+      marker.removeEventListener("pointermove", move);
+      marker.removeEventListener("pointerup", end);
+      marker.removeEventListener("pointercancel", end);
+      this.renderPressureAreas(id);
+      this.updatePressureForcingTexture();
+      this.markSimulationUnsettled();
+    };
+    marker.addEventListener("pointermove", move);
+    marker.addEventListener("pointerup", end);
+    marker.addEventListener("pointercancel", end);
+  }
+
+  handlePressureAreaKey(event, id) {
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      this.selectedPressureAreaId = id;
+      this.removeSelectedPressureArea();
+      return;
+    }
+
+    const area = this.pressureAreas.find((candidate) => candidate.id === id);
+    if (!area) return;
+    const movement = event.shiftKey ? 0.05 : 0.01;
+    let horizontalPosition = area.horizontalPosition;
+    let verticalPosition = area.verticalPosition;
+    if (event.key === "ArrowLeft") horizontalPosition -= movement;
+    else if (event.key === "ArrowRight") horizontalPosition += movement;
+    else if (event.key === "ArrowUp") verticalPosition -= movement;
+    else if (event.key === "ArrowDown") verticalPosition += movement;
+    else return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    horizontalPosition = ((horizontalPosition % 1) + 1) % 1;
+    verticalPosition = Math.min(1, Math.max(0, verticalPosition));
+    this.setPressureAreaPosition(id, horizontalPosition, verticalPosition);
+    this.selectedPressureAreaId = id;
+    this.renderPressureAreas(id);
+    this.updatePressureForcingTexture();
+    this.markSimulationUnsettled();
+  }
+
+  setPressureAreaPosition(id, horizontalPosition, verticalPosition) {
+    const area = this.pressureAreas.find((candidate) => candidate.id === id);
+    if (!area) return;
+    area.horizontalPosition = horizontalPosition;
+    area.verticalPosition = verticalPosition;
+  }
+
+  getMapPositionFromClient(clientX, clientY) {
+    const bounds = this.canvas.getBoundingClientRect();
+    return {
+      horizontalPosition: Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width)),
+      verticalPosition: Math.min(1, Math.max(0, (clientY - bounds.top) / bounds.height)),
+    };
+  }
+
+  serializePressureMap() {
+    return {
+      format: PRESSURE_MAP_FORMAT,
+      version: PRESSURE_MAP_VERSION,
+      pressureAreas: this.pressureAreas.map((area) => ({
+        type: area.type,
+        latitude: Number((90 - area.verticalPosition * 180).toFixed(6)),
+        longitude: Number((area.horizontalPosition * 360 - 180).toFixed(6)),
+        intensity: area.intensity,
+      })),
+    };
+  }
+
+  deserializePressureMap(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("The pressure map must be a JSON object.");
+    }
+    if (data.format !== PRESSURE_MAP_FORMAT) {
+      throw new Error("This is not a Climate Simulator pressure map.");
+    }
+    if (data.version !== PRESSURE_MAP_VERSION) {
+      throw new Error(
+        `Unsupported pressure map version: ${String(data.version)}.`,
+      );
+    }
+    if (!Array.isArray(data.pressureAreas)) {
+      throw new Error("The pressure map must contain a pressureAreas array.");
+    }
+
+    return data.pressureAreas.map((sourceArea, index) => {
+      const areaNumber = index + 1;
+      if (!sourceArea || typeof sourceArea !== "object" || Array.isArray(sourceArea)) {
+        throw new Error(`Pressure area ${areaNumber} must be an object.`);
+      }
+      if (sourceArea.type !== "high" && sourceArea.type !== "low") {
+        throw new Error(
+          `Pressure area ${areaNumber} type must be "high" or "low".`,
+        );
+      }
+
+      const latitude = sourceArea.latitude;
+      const longitude = sourceArea.longitude;
+      const intensity = sourceArea.intensity;
+      if (
+        typeof latitude !== "number"
+        || !Number.isFinite(latitude)
+        || latitude < -90
+        || latitude > 90
+      ) {
+        throw new Error(
+          `Pressure area ${areaNumber} latitude must be between -90 and 90.`,
+        );
+      }
+      if (
+        typeof longitude !== "number"
+        || !Number.isFinite(longitude)
+        || longitude < -180
+        || longitude > 180
+      ) {
+        throw new Error(
+          `Pressure area ${areaNumber} longitude must be between -180 and 180.`,
+        );
+      }
+      if (
+        typeof intensity !== "number"
+        || !Number.isFinite(intensity)
+        || intensity < MIN_PRESSURE_AREA_INTENSITY
+        || intensity > MAX_PRESSURE_AREA_INTENSITY
+      ) {
+        throw new Error(
+          `Pressure area ${areaNumber} intensity must be between ${MIN_PRESSURE_AREA_INTENSITY} and ${MAX_PRESSURE_AREA_INTENSITY}.`,
+        );
+      }
+
+      return {
+        id: areaNumber,
+        type: sourceArea.type,
+        horizontalPosition: (longitude + 180) / 360,
+        verticalPosition: (90 - latitude) / 180,
+        intensity,
+      };
+    });
+  }
+
+  applyPressureMap(pressureAreas) {
+    this.pressureAreas = pressureAreas;
+    this.nextPressureAreaId = pressureAreas.length + 1;
+    this.selectedPressureAreaId = null;
+    this.pendingPressureAreaType = null;
+    this.renderPressureAreas();
+    this.updatePressureForcingTexture();
+    this.markSimulationUnsettled();
+  }
+
+  async importPressureMapFile() {
+    const [file] = this.pressureAreaControls.fileInput.files;
+    if (!file) return;
+
+    try {
+      const data = JSON.parse(await file.text());
+      const pressureAreas = this.deserializePressureMap(data);
+      this.applyPressureMap(pressureAreas);
+      const noun = pressureAreas.length === 1 ? "area" : "areas";
+      this.pressureAreaControls.status.textContent =
+        `Imported ${pressureAreas.length} pressure ${noun}.`;
+    } catch (error) {
+      this.pressureAreaControls.status.textContent =
+        `Import failed: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      this.pressureAreaControls.fileInput.value = "";
+    }
+  }
+
+  exportPressureMap() {
+    const contents = `${JSON.stringify(this.serializePressureMap(), null, 2)}\n`;
+    const blob = new Blob([contents], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = this.document.createElement("a");
+    anchor.download = "climate-pressure-map.json";
+    anchor.href = url;
+    anchor.click();
+    URL.revokeObjectURL(url);
+
+    const noun = this.pressureAreas.length === 1 ? "area" : "areas";
+    this.pressureAreaControls.status.textContent =
+      `Exported ${this.pressureAreas.length} pressure ${noun}.`;
+  }
+
+  updateSelectedPressureAreaIntensity({ normalizeInput = false } = {}) {
+    const area = this.pressureAreas.find(
+      (candidate) => candidate.id === this.selectedPressureAreaId,
+    );
+    if (!area) return;
+
+    const parsedIntensity = Number.parseFloat(
+      this.pressureAreaControls.intensityInput.value,
+    );
+    if (!Number.isFinite(parsedIntensity)) return;
+
+    area.intensity = Math.min(
+      MAX_PRESSURE_AREA_INTENSITY,
+      Math.max(MIN_PRESSURE_AREA_INTENSITY, parsedIntensity),
+    );
+    if (normalizeInput) {
+      this.pressureAreaControls.intensityInput.value =
+        this.formatNumber(area.intensity);
+    }
+    const marker = this.pressureAreaControls.markers.querySelector(
+      `[data-pressure-area-id="${area.id}"]`,
+    );
+    if (marker) {
+      marker.title = `${this.getPressureAreaLabel(area)}. Drag or use arrow keys to move; Delete removes.`;
+      marker.setAttribute("aria-label", marker.title);
+    }
+    this.updatePressureAreaStatus();
+    this.updatePressureForcingTexture();
+    this.markSimulationUnsettled();
+  }
+
+  updatePressureForcingTexture() {
+    if (!this.simulation?.pressureForcing || !this.gl) return;
+
+    const values = this.pressureForcingValues
+      ?? new Float32Array(PRESSURE_FIELD_WIDTH * PRESSURE_FIELD_HEIGHT);
+    this.pressureForcingValues = values;
+    values.fill(0);
+
+    for (const area of this.pressureAreas) {
+      const centerLatitude = 90 - area.verticalPosition * 180;
+      const centerTextureY = 1 - area.verticalPosition;
+      const radiusY = PRESSURE_AREA_RADIUS_DEGREES / 180;
+      const minimumY = Math.max(
+        0,
+        Math.floor((centerTextureY - radiusY) * PRESSURE_FIELD_HEIGHT),
+      );
+      const maximumY = Math.min(
+        PRESSURE_FIELD_HEIGHT - 1,
+        Math.ceil((centerTextureY + radiusY) * PRESSURE_FIELD_HEIGHT),
+      );
+      const signedStrength = (area.type === "high" ? 1 : -1)
+        * PRESSURE_AREA_STRENGTH
+        * area.intensity;
+
+      for (let y = minimumY; y <= maximumY; y += 1) {
+        const textureY = (y + 0.5) / PRESSURE_FIELD_HEIGHT;
+        const latitude = (2 * textureY - 1) * 90;
+        const latitudeDistance = Math.abs(latitude - centerLatitude);
+        if (latitudeDistance >= PRESSURE_AREA_RADIUS_DEGREES) continue;
+
+        const meanLatitude = 0.5 * (latitude + centerLatitude);
+        const longitudeScale = Math.max(
+          Math.cos(meanLatitude * Math.PI / 180),
+          0.15,
+        );
+        const maximumLongitudeDegrees = Math.sqrt(
+          PRESSURE_AREA_RADIUS_DEGREES ** 2 - latitudeDistance ** 2,
+        );
+        const radiusX = maximumLongitudeDegrees / (360 * longitudeScale);
+        const centerX = area.horizontalPosition * PRESSURE_FIELD_WIDTH - 0.5;
+        const minimumX = Math.floor(centerX - radiusX * PRESSURE_FIELD_WIDTH);
+        const maximumX = Math.ceil(centerX + radiusX * PRESSURE_FIELD_WIDTH);
+
+        for (let rawX = minimumX; rawX <= maximumX; rawX += 1) {
+          const x = (
+            (rawX % PRESSURE_FIELD_WIDTH) + PRESSURE_FIELD_WIDTH
+          ) % PRESSURE_FIELD_WIDTH;
+          const textureX = (x + 0.5) / PRESSURE_FIELD_WIDTH;
+          let longitudeDistance = Math.abs(
+            textureX - area.horizontalPosition,
+          );
+          longitudeDistance = Math.min(
+            longitudeDistance,
+            1 - longitudeDistance,
+          );
+          const longitudeDegrees = longitudeDistance * 360 * longitudeScale;
+          const distanceDegrees = Math.hypot(
+            longitudeDegrees,
+            latitudeDistance,
+          );
+          if (distanceDegrees >= PRESSURE_AREA_RADIUS_DEGREES) continue;
+
+          const smoothstepPosition = Math.min(1, Math.max(
+            0,
+            (
+              distanceDegrees - 0.45 * PRESSURE_AREA_RADIUS_DEGREES
+            ) / (0.55 * PRESSURE_AREA_RADIUS_DEGREES),
+          ));
+          const smoothstepValue = smoothstepPosition
+            * smoothstepPosition
+            * (3 - 2 * smoothstepPosition);
+          const influence = 1 - smoothstepValue;
+          values[y * PRESSURE_FIELD_WIDTH + x] +=
+            signedStrength * influence * influence;
+        }
+      }
+    }
+
+    for (let index = 0; index < values.length; index += 1) {
+      values[index] = Math.min(0.25, Math.max(-0.25, values[index]));
+    }
+    this.simulation.pressureForcing.uploadData(
+      PRESSURE_FIELD_WIDTH,
+      PRESSURE_FIELD_HEIGHT,
+      this.gl.RED,
+      this.gl.FLOAT,
+      values,
+    );
   }
 
   convertDisplayedUnit(input, oldFactor, newFactor) {
@@ -593,6 +1177,14 @@ export class ClimateSimulator {
       Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
       Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
     ];
+    const pressureForcing = Texture2D.allocate(
+      gl,
+      PRESSURE_FIELD_WIDTH,
+      PRESSURE_FIELD_HEIGHT,
+      gl.R32F,
+      gl.RED,
+      gl.FLOAT,
+    );
     const oceanCurrent = [
       Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
       Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
@@ -653,6 +1245,7 @@ export class ClimateSimulator {
       texture.setSampling(linearWrapping);
     });
     biomes.setSampling(linearWrapping);
+    pressureForcing.setSampling(linearWrapping);
     [
       ...climateStatsA,
       ...climateStatsB,
@@ -711,6 +1304,7 @@ export class ClimateSimulator {
       waterVapor,
       wind,
       pressure,
+      pressureForcing,
       oceanCurrent,
       seaSurfaceTemperature,
       salinity,
@@ -731,6 +1325,10 @@ export class ClimateSimulator {
       monthlyClimateFramebuffer: monthlyClimate,
       climateZoneFramebuffer: climateZone,
     };
+    this.pressureForcingValues = new Float32Array(
+      PRESSURE_FIELD_WIDTH * PRESSURE_FIELD_HEIGHT,
+    );
+    this.updatePressureForcingTexture();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -875,9 +1473,28 @@ export class ClimateSimulator {
     this.seasonPosition.textContent = `${season} · year ${this.completedClimateYears + 1}`;
   }
 
+  updateAnnualPrecipitationStatus() {
+    const availableMonths = this.monthlySampleCounts.filter(
+      (count) => count > 0,
+    ).length;
+    if (!this.controls.autoSeasons.checked) {
+      this.annualPrecipitationStatus.textContent =
+        "Enable automatic seasons to collect a modeled annual total.";
+    } else if (availableMonths < 12) {
+      this.annualPrecipitationStatus.textContent =
+        `Collecting annual map · ${availableMonths} of 12 months available.`;
+    } else {
+      const yearNoun = this.completedClimateYears === 1 ? "year" : "years";
+      this.annualPrecipitationStatus.textContent = this.completedClimateYears > 0
+        ? `Modeled annual total · climatology from ${this.completedClimateYears} completed ${yearNoun}.`
+        : "Modeled annual total · all 12 months available.";
+    }
+  }
+
   resetSeasonalClimate() {
     this.completedClimateYears = 0;
     this.resetSeasonCycle();
+    this.updateAnnualPrecipitationStatus();
     if (!this.simulation?.climateStatsFramebuffers) return;
 
     this.clearClimateStatistics();
@@ -912,6 +1529,7 @@ export class ClimateSimulator {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.climateStatsIndex = 0;
     this.climateSampleCount = 0;
+    this.updateAnnualPrecipitationStatus();
     this.updateSelectedPointClimate(true);
   }
 
@@ -975,6 +1593,7 @@ export class ClimateSimulator {
     this.climateStatsIndex = targetIndex;
     this.climateSampleCount += 1;
     this.monthlySampleCounts[monthIndex] += 1;
+    this.updateAnnualPrecipitationStatus();
     this.updateSelectedPointClimate();
   }
 
@@ -988,16 +1607,16 @@ export class ClimateSimulator {
   selectMapPointFromEvent(event) {
     if (!this.ready) return;
 
-    const bounds = this.canvas.getBoundingClientRect();
-    const horizontalPosition = Math.min(
-      1,
-      Math.max(0, (event.clientX - bounds.left) / bounds.width),
-    );
-    const verticalPosition = Math.min(
-      1,
-      Math.max(0, (event.clientY - bounds.top) / bounds.height),
-    );
-    this.selectMapPoint(horizontalPosition, verticalPosition);
+    const position = this.getMapPositionFromClient(event.clientX, event.clientY);
+    if (this.pendingPressureAreaType) {
+      this.addPressureArea(
+        this.pendingPressureAreaType,
+        position.horizontalPosition,
+        position.verticalPosition,
+      );
+      return;
+    }
+    this.selectMapPoint(position.horizontalPosition, position.verticalPosition);
   }
 
   selectMapPoint(horizontalPosition, verticalPosition) {
@@ -1348,6 +1967,7 @@ export class ClimateSimulator {
     advection.setTexture("previousWind", 2, this.simulation.wind[sourceIndex]);
     advection.setTexture("previousPressure", 3, this.simulation.pressure[sourceIndex]);
     advection.setTexture("seaSurfaceTemperature", 4, this.simulation.seaSurfaceTemperature[targetIndex]);
+    advection.setTexture("pressureForcingMap", 5, this.simulation.pressureForcing);
     advection.setFloat("waterLevel", waterLevel);
     advection.setFloat("rotationSpeed", this.getRotationSpeed());
     advection.setFloat("globalCirculation", this.getGlobalCirculation());
@@ -1399,6 +2019,9 @@ export class ClimateSimulator {
     render.setTexture("climateZoneMap", 8, this.simulation.climateZones);
     render.setTexture("oceanCurrentMap", 9, this.simulation.oceanCurrent[1 - this.pingPongIndex]);
     render.setTexture("deepOceanState", 10, this.simulation.deepOceanState[1 - this.pingPongIndex]);
+    render.setTexture("monthlyPrecipitation0", 11, this.simulation.monthlyPrecipitation[0]);
+    render.setTexture("monthlyPrecipitation1", 12, this.simulation.monthlyPrecipitation[1]);
+    render.setTexture("monthlyPrecipitation2", 13, this.simulation.monthlyPrecipitation[2]);
     render.setFloat("waterLevel", this.getWaterLevel());
     render.setInteger("viewMode", this.viewMode);
     render.setInteger("grayscale", Number(this.controls.grayscale.checked));

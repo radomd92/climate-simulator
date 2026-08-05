@@ -155,6 +155,36 @@ h2 {
   font-size: 1.8rem;
 }
 
+.control-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding-top: 1.25rem;
+}
+
+.control-tab {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.control-tab:hover {
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.control-tab[aria-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent-dark);
+  color: var(--accent);
+}
+
+.control-tab-panel[hidden] {
+  display: none;
+}
+
 .control-group {
   margin: 0;
   padding: 1.25rem 0;
@@ -248,6 +278,44 @@ h2 {
   font-size: 0.78rem;
 }
 
+.pressure-area-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pressure-area-actions button {
+  text-align: left;
+}
+
+.pressure-area-actions button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-dark);
+  color: var(--accent);
+}
+
+.pressure-area-intensity-label {
+  display: block;
+  margin-top: 0.8rem;
+}
+
+#remove-pressure-area {
+  width: 100%;
+  margin-top: 0.8rem;
+  text-align: left;
+}
+
+.pressure-map-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.pressure-map-actions button {
+  min-width: 0;
+  text-align: left;
+}
+
 .presets {
   display: grid;
   gap: 0.5rem;
@@ -280,6 +348,49 @@ canvas {
 canvas:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+canvas.placing-pressure-area {
+  cursor: copy;
+}
+
+.pressure-area-markers {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pressure-area-marker {
+  position: absolute;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(7 16 15 / 70%), 0 0 1.2rem currentColor;
+  font-size: 0.9rem;
+  font-weight: 850;
+  line-height: 1;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.pressure-area-marker-high {
+  background: #49231e;
+  color: #ff9e92;
+}
+
+.pressure-area-marker-low {
+  background: #15344a;
+  color: #62b6e7;
+}
+
+.pressure-area-marker.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .map-selection-marker {
@@ -320,6 +431,7 @@ canvas:focus-visible {
 
 .canvas-status {
   position: absolute;
+  z-index: 4;
   inset: 0;
   display: grid;
   place-items: center;
@@ -788,15 +900,18 @@ footer {
   }
 
   .control-panel {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0 1.5rem;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
 
-  .panel-heading {
-    grid-column: 1 / -1;
+  .control-tab-panel {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1.5rem;
+  }
+
+  .control-tab-panel[hidden] {
+    display: none;
   }
 
   .biome-legend {
@@ -838,6 +953,10 @@ footer {
   }
 
   .control-panel {
+    display: block;
+  }
+
+  .control-tab-panel {
     display: block;
   }
 

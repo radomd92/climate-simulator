@@ -53,134 +53,232 @@
           <h2 id="simulator-heading">Planet setup</h2>
         </div>
 
-        <div class="control-group">
-          <label for="heightmap">Heightmap</label>
-          <input id="heightmap" type="file" accept="image/*">
-          <p class="hint">Use a 2:1 equirectangular grayscale image.</p>
+        <div class="control-tabs" role="tablist" aria-label="Planet controls">
+          <button
+            id="world-controls-tab"
+            class="control-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="world-controls-panel"
+            data-control-tab
+          >
+            World
+          </button>
+          <button
+            id="simulation-controls-tab"
+            class="control-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="simulation-controls-panel"
+            data-control-tab
+            tabindex="-1"
+          >
+            Simulation
+          </button>
         </div>
 
-        <div class="control-group">
-          <label for="water-level">Water level</label>
-          <div class="input-with-unit">
-            <input id="water-level" type="number" min="0" max="1" step="0.01" value="0.5">
-            <span>height value</span>
+        <div
+          id="world-controls-panel"
+          class="control-tab-panel"
+          role="tabpanel"
+          aria-labelledby="world-controls-tab"
+        >
+          <div class="control-group">
+            <label for="heightmap">Heightmap</label>
+            <input id="heightmap" type="file" accept="image/*">
+            <p class="hint">Use a 2:1 equirectangular grayscale image.</p>
           </div>
+
+          <fieldset class="control-group presets">
+            <legend>Presets</legend>
+            <button type="button" data-preset="earth">Earth</button>
+            <button type="button" data-preset="retrograde">Retrograde Earth</button>
+            <button type="button" data-preset="cassini">Cassini Earth</button>
+          </fieldset>
         </div>
 
-        <div class="control-group">
-          <label for="rotation-speed">Equatorial rotation speed</label>
-          <div class="input-with-select">
-            <input id="rotation-speed" type="number" step="any" value="460">
-            <select id="rotation-unit" aria-label="Rotation speed unit">
-              <option value="0.001">mm/s</option>
-              <option value="1" selected>m/s</option>
-              <option value="1000">km/s</option>
-              <option value="0.2777777777777778">km/h</option>
-              <option value="0.3048">ft/s</option>
-              <option value="0.44704">mph</option>
-              <option value="0.5144444444444445">kn</option>
-              <option value="299792458">c</option>
+        <div
+          id="simulation-controls-panel"
+          class="control-tab-panel"
+          role="tabpanel"
+          aria-labelledby="simulation-controls-tab"
+          hidden
+        >
+          <fieldset class="control-group pressure-area-controls">
+            <legend>Pressure areas</legend>
+            <div class="pressure-area-actions">
+              <button
+                type="button"
+                data-pressure-area-type="high"
+                aria-pressed="false"
+              >
+                Add high-pressure area
+              </button>
+              <button
+                type="button"
+                data-pressure-area-type="low"
+                aria-pressed="false"
+              >
+                Add low-pressure area
+              </button>
+            </div>
+            <p id="pressure-area-status" class="hint" aria-live="polite">
+              No custom pressure areas.
+            </p>
+            <label class="pressure-area-intensity-label" for="pressure-area-intensity">
+              Selected area intensity
+            </label>
+            <div class="input-with-unit">
+              <input
+                id="pressure-area-intensity"
+                type="number"
+                min="0.1"
+                max="3"
+                step="0.1"
+                value="1"
+                disabled
+              >
+              <span>relative</span>
+            </div>
+            <button id="remove-pressure-area" type="button" disabled>
+              Remove selected area
+            </button>
+            <div class="pressure-map-actions">
+              <button id="import-pressure-map" type="button">
+                Import pressure map
+              </button>
+              <button id="export-pressure-map" type="button" disabled>
+                Export pressure map
+              </button>
+            </div>
+            <input
+              id="pressure-map-file"
+              type="file"
+              accept=".json,application/json"
+              aria-label="Choose a pressure map JSON file"
+              hidden
+            >
+            <p class="hint">JSON import replaces the current pressure areas.</p>
+          </fieldset>
+
+          <div class="control-group">
+            <label for="water-level">Water level</label>
+            <div class="input-with-unit">
+              <input id="water-level" type="number" min="0" max="1" step="0.01" value="0.5">
+              <span>height value</span>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="rotation-speed">Equatorial rotation speed</label>
+            <div class="input-with-select">
+              <input id="rotation-speed" type="number" step="any" value="460">
+              <select id="rotation-unit" aria-label="Rotation speed unit">
+                <option value="0.001">mm/s</option>
+                <option value="1" selected>m/s</option>
+                <option value="1000">km/s</option>
+                <option value="0.2777777777777778">km/h</option>
+                <option value="0.3048">ft/s</option>
+                <option value="0.44704">mph</option>
+                <option value="0.5144444444444445">kn</option>
+                <option value="299792458">c</option>
+              </select>
+            </div>
+            <p class="hint">A negative value represents retrograde rotation.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="global-circulation">Global circulation strength</label>
+            <div class="input-with-unit">
+              <input
+                id="global-circulation"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value="1"
+              >
+              <span>Earth-like</span>
+            </div>
+            <p class="hint">Controls trade easterlies, mid-latitude westerlies, and polar easterlies.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="ocean-circulation">Ocean circulation strength</label>
+            <div class="input-with-unit">
+              <input
+                id="ocean-circulation"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value="1"
+              >
+              <span>Earth-like</span>
+            </div>
+            <p class="hint">Controls wind-driven currents, density flow, and ocean heat transport.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="deep-ocean-circulation">Deep overturning strength</label>
+            <div class="input-with-unit">
+              <input
+                id="deep-ocean-circulation"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value="1"
+              >
+              <span>Earth-like</span>
+            </div>
+            <p class="hint">Controls high-latitude sinking, tropical upwelling, and deep return flow.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="insolation">Solar irradiance</label>
+            <div class="input-with-select">
+              <input id="insolation" type="number" min="0" step="any" value="1361">
+              <select id="insolation-unit" aria-label="Solar irradiance unit">
+                <option value="1" selected>W/m²</option>
+                <option value="1361">Earth suns</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="solar-declination">Solar declination</label>
+            <div class="input-with-unit">
+              <input
+                id="solar-declination"
+                type="number"
+                min="-23.5"
+                max="23.5"
+                step="0.5"
+                value="0"
+              >
+              <span>degrees</span>
+            </div>
+            <p class="hint">Positive values produce northern summer; negative values produce southern summer.</p>
+            <label class="checkbox-control">
+              <input id="auto-seasons" type="checkbox" checked>
+              Cycle seasons automatically
+            </label>
+            <label class="compact-label" for="season-speed">Seasonal simulation</label>
+            <select id="season-speed" class="full-width-select">
+              <option value="480" selected>About 3 seconds/year</option>
+              <option value="960">About 6 seconds/year</option>
+              <option value="1920">About 12 seconds/year</option>
+              <option value="3200">About 20 seconds/year</option>
+              <option value="6400">About 40 seconds/year</option>
+              <option value="9600">About 60 seconds/year</option>
+              <option value="19200">About 120 seconds/year</option>
             </select>
-          </div>
-          <p class="hint">A negative value represents retrograde rotation.</p>
-        </div>
-
-        <div class="control-group">
-          <label for="global-circulation">Global circulation strength</label>
-          <div class="input-with-unit">
-            <input
-              id="global-circulation"
-              type="number"
-              min="0"
-              max="2"
-              step="0.1"
-              value="1"
-            >
-            <span>Earth-like</span>
-          </div>
-          <p class="hint">Controls trade easterlies, mid-latitude westerlies, and polar easterlies.</p>
-        </div>
-
-        <div class="control-group">
-          <label for="ocean-circulation">Ocean circulation strength</label>
-          <div class="input-with-unit">
-            <input
-              id="ocean-circulation"
-              type="number"
-              min="0"
-              max="2"
-              step="0.1"
-              value="1"
-            >
-            <span>Earth-like</span>
-          </div>
-          <p class="hint">Controls wind-driven currents, density flow, and ocean heat transport.</p>
-        </div>
-
-        <div class="control-group">
-          <label for="deep-ocean-circulation">Deep overturning strength</label>
-          <div class="input-with-unit">
-            <input
-              id="deep-ocean-circulation"
-              type="number"
-              min="0"
-              max="2"
-              step="0.1"
-              value="1"
-            >
-            <span>Earth-like</span>
-          </div>
-          <p class="hint">Controls high-latitude sinking, tropical upwelling, and deep return flow.</p>
-        </div>
-
-        <div class="control-group">
-          <label for="insolation">Solar irradiance</label>
-          <div class="input-with-select">
-            <input id="insolation" type="number" min="0" step="any" value="1361">
-            <select id="insolation-unit" aria-label="Solar irradiance unit">
-              <option value="1" selected>W/m²</option>
-              <option value="1361">Earth suns</option>
-            </select>
+            <p id="season-position" class="season-position">March equinox</p>
           </div>
         </div>
-
-        <div class="control-group">
-          <label for="solar-declination">Solar declination</label>
-          <div class="input-with-unit">
-            <input
-              id="solar-declination"
-              type="number"
-              min="-23.5"
-              max="23.5"
-              step="0.5"
-              value="0"
-            >
-            <span>degrees</span>
-          </div>
-          <p class="hint">Positive values produce northern summer; negative values produce southern summer.</p>
-          <label class="checkbox-control">
-            <input id="auto-seasons" type="checkbox" checked>
-            Cycle seasons automatically
-          </label>
-          <label class="compact-label" for="season-speed">Seasonal simulation</label>
-          <select id="season-speed" class="full-width-select">
-            <option value="480" selected>About 3 seconds/year</option>
-            <option value="960">About 6 seconds/year</option>
-            <option value="1920">About 12 seconds/year</option>
-            <option value="3200">About 20 seconds/year</option>
-            <option value="6400">About 40 seconds/year</option>
-            <option value="9600">About 60 seconds/year</option>
-            <option value="19200">About 120 seconds/year</option>
-          </select>
-          <p id="season-position" class="season-position">March equinox</p>
-        </div>
-
-        <fieldset class="control-group presets">
-          <legend>Presets</legend>
-          <button type="button" data-preset="earth">Earth</button>
-          <button type="button" data-preset="retrograde">Retrograde Earth</button>
-          <button type="button" data-preset="cassini">Cassini Earth</button>
-        </fieldset>
       </aside>
 
       <div class="viewport-panel">
@@ -190,12 +288,18 @@
             width="1366"
             height="683"
             tabindex="0"
-            aria-label="Interactive climate map. Click a location, or use the arrow keys, to inspect its monthly climate."
+            aria-label="Interactive climate map. Click to inspect climate or place a selected pressure area; use arrow keys to move a focused selection."
             aria-describedby="map-interaction-hint"
           >
             Your browser does not support HTML canvas.
           </canvas>
           <div id="map-selection-marker" class="map-selection-marker" hidden></div>
+          <div
+            id="pressure-area-markers"
+            class="pressure-area-markers"
+            role="group"
+            aria-label="Custom pressure areas"
+          ></div>
           <div id="loading-status" class="canvas-status" role="status">Loading simulation…</div>
         </div>
 
@@ -210,7 +314,8 @@
             <label><input type="radio" name="view-mode" value="6"> Climate zones</label>
             <label><input type="radio" name="view-mode" value="7"> Ocean currents</label>
             <label><input type="radio" name="view-mode" value="8"> Deep currents</label>
-            <label><input type="radio" name="view-mode" value="9"> Precipitation</label>
+            <label><input type="radio" name="view-mode" value="9"> Precipitation rate</label>
+            <label><input type="radio" name="view-mode" value="10"> Annual precipitation</label>
           </div>
           <div class="simulation-actions">
             <label class="simulation-progress" for="simulation-progress">
@@ -293,6 +398,15 @@
           <div class="gradient precipitation-gradient"></div>
           <div class="legend-scale"><span>0 cm/year</span><span>100 cm/year</span><span>300+ cm/year</span></div>
           <p class="legend-note">Current seasonal rate, annualized. Point charts show each model month's total.</p>
+        </div>
+
+        <div class="legend" id="annual-precipitation-legend" hidden>
+          <div class="gradient precipitation-gradient"></div>
+          <div class="legend-scale"><span>0 cm/year</span><span>100 cm/year</span><span>300+ cm/year</span></div>
+          <p id="annual-precipitation-status" class="legend-note" aria-live="polite">
+            Collecting annual map · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Click the map for the exact annual total and monthly breakdown.</p>
         </div>
 
         <div class="biome-legend" id="biome-legend">

@@ -401,6 +401,7 @@ export const shaders = {
     uniform sampler2D previousWind;
     uniform sampler2D previousPressure;
     uniform sampler2D seaSurfaceTemperature;
+    uniform sampler2D pressureForcingMap;
     uniform float waterLevel;
     uniform float rotationSpeed;
     uniform float globalCirculation;
@@ -470,6 +471,12 @@ export const shaders = {
       return max(temperature * solarIrradiance / 1361.0, 1.0);
     }
 
+    float getCustomPressureOffset(vec2 uv) {
+      // The CPU-rasterized field supports an unrestricted number of editable
+      // systems while retaining smooth sampling and dateline wrapping.
+      return clamp(texture(pressureForcingMap, uv).r, -0.25, 0.25);
+    }
+
     float getEquilibriumPressure(vec2 uv) {
       float latitude = getLatitude(uv);
       float height = texture(heightmap, uv).r;
@@ -484,7 +491,8 @@ export const shaders = {
       float pressureBelts = -0.08 * cos(radians(circulationLatitude * 6.0));
       float thermalLow = -0.04 * seasonalAnomaly;
       float terrainHigh = 0.04 * elevation;
-      return 1.0 + pressureBelts + thermalLow + terrainHigh;
+      float customPressure = getCustomPressureOffset(uv);
+      return 1.0 + pressureBelts + thermalLow + terrainHigh + customPressure;
     }
 
     vec2 getGlobalWind(float latitude) {
@@ -1184,12 +1192,25 @@ export const shaders = {
     uniform sampler2D climateZoneMap;
     uniform sampler2D oceanCurrentMap;
     uniform sampler2D deepOceanState;
+    uniform sampler2D monthlyPrecipitation0;
+    uniform sampler2D monthlyPrecipitation1;
+    uniform sampler2D monthlyPrecipitation2;
     uniform float waterLevel;
     uniform int viewMode;
     uniform bool grayscale;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 outputColor;
+
+    float getAnnualPrecipitation(vec2 uv) {
+      vec4 januaryThroughApril = texture(monthlyPrecipitation0, uv);
+      vec4 mayThroughAugust = texture(monthlyPrecipitation1, uv);
+      vec4 septemberThroughDecember = texture(monthlyPrecipitation2, uv);
+      return dot(
+        januaryThroughApril + mayThroughAugust + septemberThroughDecember,
+        vec4(1.0)
+      );
+    }
 
     vec3 getPrecipitationColor(float normalizedPrecipitation) {
       float value = clamp(normalizedPrecipitation, 0.0, 1.0);
@@ -1255,13 +1276,24 @@ export const shaders = {
           vec2 current = texture(deepOceanState, textureCoordinate).rg;
           outputColor = vec4(0.5 * clamp(current * 2.5, -1.0, 1.0) + 0.5, 0.1, 1.0);
         }
-      } else {
+      } else if (viewMode == 9) {
         float height = texture(heightmap, textureCoordinate).r;
         if (height < waterLevel) {
           outputColor = vec4(0.04, 0.20, 0.30, 1.0);
         } else {
           float precipitation = texture(waterVaporMap, textureCoordinate).g;
           float normalizedPrecipitation = precipitation / 300.0;
+          outputColor = grayscale
+            ? vec4(vec3(clamp(normalizedPrecipitation, 0.0, 1.0)), 1.0)
+            : vec4(getPrecipitationColor(normalizedPrecipitation), 1.0);
+        }
+      } else {
+        float height = texture(heightmap, textureCoordinate).r;
+        if (height < waterLevel) {
+          outputColor = vec4(0.04, 0.20, 0.30, 1.0);
+        } else {
+          float annualPrecipitation = getAnnualPrecipitation(textureCoordinate);
+          float normalizedPrecipitation = annualPrecipitation / 300.0;
           outputColor = grayscale
             ? vec4(vec3(clamp(normalizedPrecipitation, 0.0, 1.0)), 1.0)
             : vec4(getPrecipitationColor(normalizedPrecipitation), 1.0);
