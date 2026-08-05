@@ -1181,35 +1181,146 @@ export const shaders = {
   renderFragment: `#version 300 es
     precision mediump float;
 
+    const float TEMPERATURE_SCALE_MIN = -80.0;
+    const float TEMPERATURE_SCALE_MAX = 50.0;
+
     uniform sampler2D heightmap;
     uniform sampler2D waterVaporMap;
     uniform sampler2D temperatureMap;
     uniform sampler2D biomeMap;
     uniform sampler2D windMap;
     uniform sampler2D waterVaporColors;
-    uniform sampler2D temperatureColors;
     uniform sampler2D pressureMap;
     uniform sampler2D climateZoneMap;
     uniform sampler2D oceanCurrentMap;
     uniform sampler2D deepOceanState;
-    uniform sampler2D monthlyPrecipitation0;
-    uniform sampler2D monthlyPrecipitation1;
-    uniform sampler2D monthlyPrecipitation2;
+    uniform sampler2D monthlyClimate0;
+    uniform sampler2D monthlyClimate1;
+    uniform sampler2D monthlyClimate2;
     uniform float waterLevel;
+    uniform int climatologyMonthsAvailable;
     uniform int viewMode;
     uniform bool grayscale;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 outputColor;
 
+    void getMonthlyClimatology(
+      vec2 uv,
+      out vec4 januaryThroughApril,
+      out vec4 mayThroughAugust,
+      out vec4 septemberThroughDecember
+    ) {
+      januaryThroughApril = texture(monthlyClimate0, uv);
+      mayThroughAugust = texture(monthlyClimate1, uv);
+      septemberThroughDecember = texture(monthlyClimate2, uv);
+    }
+
     float getAnnualPrecipitation(vec2 uv) {
-      vec4 januaryThroughApril = texture(monthlyPrecipitation0, uv);
-      vec4 mayThroughAugust = texture(monthlyPrecipitation1, uv);
-      vec4 septemberThroughDecember = texture(monthlyPrecipitation2, uv);
+      vec4 januaryThroughApril;
+      vec4 mayThroughAugust;
+      vec4 septemberThroughDecember;
+      getMonthlyClimatology(
+        uv,
+        januaryThroughApril,
+        mayThroughAugust,
+        septemberThroughDecember
+      );
       return dot(
         januaryThroughApril + mayThroughAugust + septemberThroughDecember,
         vec4(1.0)
       );
+    }
+
+    float minimumComponent(vec4 values) {
+      return min(min(values.x, values.y), min(values.z, values.w));
+    }
+
+    float maximumComponent(vec4 values) {
+      return max(max(values.x, values.y), max(values.z, values.w));
+    }
+
+    void getTemperatureClimatology(
+      vec2 uv,
+      out float annualMean,
+      out float coldestMonthlyMean,
+      out float warmestMonthlyMean
+    ) {
+      vec4 januaryThroughApril;
+      vec4 mayThroughAugust;
+      vec4 septemberThroughDecember;
+      getMonthlyClimatology(
+        uv,
+        januaryThroughApril,
+        mayThroughAugust,
+        septemberThroughDecember
+      );
+      annualMean = dot(
+        januaryThroughApril + mayThroughAugust + septemberThroughDecember,
+        vec4(1.0)
+      ) / 12.0;
+      coldestMonthlyMean = min(
+        minimumComponent(januaryThroughApril),
+        min(
+          minimumComponent(mayThroughAugust),
+          minimumComponent(septemberThroughDecember)
+        )
+      );
+      warmestMonthlyMean = max(
+        maximumComponent(januaryThroughApril),
+        max(
+          maximumComponent(mayThroughAugust),
+          maximumComponent(septemberThroughDecember)
+        )
+      );
+    }
+
+    float normalizeTemperature(float celsius) {
+      return clamp(
+        (celsius - TEMPERATURE_SCALE_MIN)
+          / (TEMPERATURE_SCALE_MAX - TEMPERATURE_SCALE_MIN),
+        0.0,
+        1.0
+      );
+    }
+
+    vec3 temperatureRgb(float red, float green, float blue) {
+      return vec3(red, green, blue) / 255.0;
+    }
+
+    vec3 getTemperatureColor(float celsius) {
+      vec3 violet = temperatureRgb(75.0, 44.0, 130.0);
+      vec3 blue = temperatureRgb(36.0, 88.0, 166.0);
+      vec3 cyanBlue = temperatureRgb(31.0, 155.0, 193.0);
+      vec3 cyan = temperatureRgb(114.0, 216.0, 209.0);
+      vec3 green = temperatureRgb(60.0, 166.0, 90.0);
+      vec3 yellow = temperatureRgb(242.0, 211.0, 79.0);
+      vec3 orange = temperatureRgb(242.0, 140.0, 40.0);
+      vec3 redOrange = temperatureRgb(232.0, 77.0, 47.0);
+      vec3 red = temperatureRgb(159.0, 31.0, 36.0);
+
+      if (celsius < -50.0) {
+        return mix(violet, blue, clamp((celsius + 80.0) / 30.0, 0.0, 1.0));
+      }
+      if (celsius < -25.0) {
+        return mix(blue, cyanBlue, (celsius + 50.0) / 25.0);
+      }
+      if (celsius < -5.0) {
+        return mix(cyanBlue, cyan, (celsius + 25.0) / 20.0);
+      }
+      if (celsius < 0.0) {
+        return mix(cyan, green, (celsius + 5.0) / 5.0);
+      }
+      if (celsius < 10.0) {
+        return mix(green, yellow, celsius / 10.0);
+      }
+      if (celsius < 25.0) {
+        return mix(yellow, orange, (celsius - 10.0) / 15.0);
+      }
+      if (celsius < 40.0) {
+        return mix(orange, redOrange, (celsius - 25.0) / 15.0);
+      }
+      return mix(redOrange, red, clamp((celsius - 40.0) / 10.0, 0.0, 1.0));
     }
 
     vec3 getPrecipitationColor(float normalizedPrecipitation) {
@@ -1243,10 +1354,10 @@ export const shaders = {
           : texture(waterVaporColors, vec2(waterVapor, 0.5));
       } else if (viewMode == 2) {
         float celsius = texture(temperatureMap, textureCoordinate).r - 273.15;
-        float normalizedTemperature = (celsius + 50.0) / 80.0;
+        float normalizedTemperature = normalizeTemperature(celsius);
         outputColor = grayscale
           ? vec4(vec3(normalizedTemperature), 1.0)
-          : texture(temperatureColors, vec2(normalizedTemperature, 0.5));
+          : vec4(getTemperatureColor(celsius), 1.0);
       } else if (viewMode == 3) {
         outputColor = texture(biomeMap, textureCoordinate);
       } else if (viewMode == 4) {
@@ -1287,7 +1398,7 @@ export const shaders = {
             ? vec4(vec3(clamp(normalizedPrecipitation, 0.0, 1.0)), 1.0)
             : vec4(getPrecipitationColor(normalizedPrecipitation), 1.0);
         }
-      } else {
+      } else if (viewMode == 10) {
         float height = texture(heightmap, textureCoordinate).r;
         if (height < waterLevel) {
           outputColor = vec4(0.04, 0.20, 0.30, 1.0);
@@ -1298,6 +1409,30 @@ export const shaders = {
             ? vec4(vec3(clamp(normalizedPrecipitation, 0.0, 1.0)), 1.0)
             : vec4(getPrecipitationColor(normalizedPrecipitation), 1.0);
         }
+      } else if (climatologyMonthsAvailable < 12) {
+        outputColor = vec4(0.15, 0.18, 0.17, 1.0);
+      } else {
+        float annualMean;
+        float coldestMonthlyMean;
+        float warmestMonthlyMean;
+        getTemperatureClimatology(
+          textureCoordinate,
+          annualMean,
+          coldestMonthlyMean,
+          warmestMonthlyMean
+        );
+        float celsius;
+        if (viewMode == 11) {
+          celsius = annualMean;
+        } else if (viewMode == 12) {
+          celsius = coldestMonthlyMean;
+        } else {
+          celsius = warmestMonthlyMean;
+        }
+        float normalizedTemperature = normalizeTemperature(celsius);
+        outputColor = grayscale
+          ? vec4(vec3(normalizedTemperature), 1.0)
+          : vec4(getTemperatureColor(celsius), 1.0);
       }
     }
   `,

@@ -6,7 +6,6 @@ const ASSETS = {
   biomeMap: "assets/biome-map.png",
   softBiomeMap: "assets/biome-map-soft.png",
   waterVaporGradient: "assets/water-vapor-gradient.png",
-  temperatureGradient: "assets/temperature-gradient.png",
 };
 
 const VIEW_NAMES = [
@@ -21,6 +20,9 @@ const VIEW_NAMES = [
   "deep-ocean-currents",
   "precipitation",
   "annual-precipitation",
+  "annual-mean-temperature",
+  "coldest-month-temperature",
+  "warmest-month-temperature",
 ];
 const PRESSURE_AREA_STRENGTH = 0.16;
 const PRESSURE_AREA_RADIUS_DEGREES = 24;
@@ -356,7 +358,13 @@ export class ClimateSimulator {
       null,
       documentRoot.querySelector("#precipitation-legend"),
       documentRoot.querySelector("#annual-precipitation-legend"),
+      documentRoot.querySelector("#annual-mean-temperature-legend"),
+      documentRoot.querySelector("#coldest-month-temperature-legend"),
+      documentRoot.querySelector("#warmest-month-temperature-legend"),
     ];
+    this.temperatureClimatologyStatuses = Array.from(
+      documentRoot.querySelectorAll("[data-temperature-climatology-status]"),
+    );
     this.seasonPosition = documentRoot.querySelector("#season-position");
     this.climateZoneStatus = documentRoot.querySelector("#climate-zone-status");
     this.annualPrecipitationStatus = documentRoot.querySelector(
@@ -404,6 +412,7 @@ export class ClimateSimulator {
     this.renderPressureAreas();
     this.updateSeasonControls();
     this.updateAnnualPrecipitationStatus();
+    this.updateTemperatureClimatologyStatus();
   }
 
   configureCanvasSize() {
@@ -1141,13 +1150,12 @@ export class ClimateSimulator {
   async loadAssets() {
     const linear = { linear: true };
     const wrapping = { linear: true, repeatX: true };
-    const [earth, cassini, biome, softBiome, waterColors, temperatureColors] = await Promise.all([
+    const [earth, cassini, biome, softBiome, waterColors] = await Promise.all([
       Texture2D.load(this.gl, ASSETS.earthHeightmap, wrapping),
       Texture2D.load(this.gl, ASSETS.cassiniHeightmap, wrapping),
       Texture2D.load(this.gl, ASSETS.biomeMap, linear),
       Texture2D.load(this.gl, ASSETS.softBiomeMap, linear),
       Texture2D.load(this.gl, ASSETS.waterVaporGradient, linear),
-      Texture2D.load(this.gl, ASSETS.temperatureGradient, linear),
     ]);
 
     this.textures = {
@@ -1156,7 +1164,6 @@ export class ClimateSimulator {
       heightmap: earth,
       biomeLookups: [biome, softBiome],
       waterColors,
-      temperatureColors,
     };
   }
 
@@ -1491,10 +1498,33 @@ export class ClimateSimulator {
     }
   }
 
+  updateTemperatureClimatologyStatus() {
+    const availableMonths = this.monthlySampleCounts.filter(
+      (count) => count > 0,
+    ).length;
+    let message;
+    if (!this.controls.autoSeasons.checked) {
+      message =
+        "Enable automatic seasons to collect temperature climatology.";
+    } else if (availableMonths < 12) {
+      message =
+        `Collecting temperature climatology · ${availableMonths} of 12 months available.`;
+    } else {
+      const yearNoun = this.completedClimateYears === 1 ? "year" : "years";
+      message = this.completedClimateYears > 0
+        ? `Monthly temperature climatology from ${this.completedClimateYears} completed ${yearNoun}.`
+        : "Monthly temperature climatology · all 12 months available.";
+    }
+    this.temperatureClimatologyStatuses.forEach((status) => {
+      status.textContent = message;
+    });
+  }
+
   resetSeasonalClimate() {
     this.completedClimateYears = 0;
     this.resetSeasonCycle();
     this.updateAnnualPrecipitationStatus();
+    this.updateTemperatureClimatologyStatus();
     if (!this.simulation?.climateStatsFramebuffers) return;
 
     this.clearClimateStatistics();
@@ -1530,6 +1560,7 @@ export class ClimateSimulator {
     this.climateStatsIndex = 0;
     this.climateSampleCount = 0;
     this.updateAnnualPrecipitationStatus();
+    this.updateTemperatureClimatologyStatus();
     this.updateSelectedPointClimate(true);
   }
 
@@ -1594,6 +1625,7 @@ export class ClimateSimulator {
     this.climateSampleCount += 1;
     this.monthlySampleCounts[monthIndex] += 1;
     this.updateAnnualPrecipitationStatus();
+    this.updateTemperatureClimatologyStatus();
     this.updateSelectedPointClimate();
   }
 
@@ -1699,8 +1731,15 @@ export class ClimateSimulator {
 
     if (availableCount === 12) {
       const annualMeanTemperature = temperatures.reduce((sum, value) => sum + value, 0) / 12;
+      const coldestMonthlyMean = Math.min(...temperatures);
+      const warmestMonthlyMean = Math.max(...temperatures);
       const annualPrecipitation = precipitation.reduce((sum, value) => sum + value, 0);
-      this.pointClimate.summary.textContent = `${annualMeanTemperature.toFixed(1)} °C annual mean · ${annualPrecipitation.toFixed(1)} cm/year`;
+      this.pointClimate.summary.textContent = [
+        `${annualMeanTemperature.toFixed(1)} °C annual mean`,
+        `${coldestMonthlyMean.toFixed(1)} °C coldest monthly mean`,
+        `${warmestMonthlyMean.toFixed(1)} °C warmest monthly mean`,
+        `${annualPrecipitation.toFixed(1)} cm/year`,
+      ].join(" · ");
     } else {
       this.pointClimate.summary.textContent = "Annual summary available after all twelve months.";
     }
@@ -2014,15 +2053,21 @@ export class ClimateSimulator {
     render.setTexture("biomeMap", 3, this.simulation.biomes);
     render.setTexture("windMap", 4, this.simulation.wind[1 - this.pingPongIndex]);
     render.setTexture("waterVaporColors", 5, this.textures.waterColors);
-    render.setTexture("temperatureColors", 6, this.textures.temperatureColors);
     render.setTexture("pressureMap", 7, this.simulation.pressure[1 - this.pingPongIndex]);
     render.setTexture("climateZoneMap", 8, this.simulation.climateZones);
     render.setTexture("oceanCurrentMap", 9, this.simulation.oceanCurrent[1 - this.pingPongIndex]);
     render.setTexture("deepOceanState", 10, this.simulation.deepOceanState[1 - this.pingPongIndex]);
-    render.setTexture("monthlyPrecipitation0", 11, this.simulation.monthlyPrecipitation[0]);
-    render.setTexture("monthlyPrecipitation1", 12, this.simulation.monthlyPrecipitation[1]);
-    render.setTexture("monthlyPrecipitation2", 13, this.simulation.monthlyPrecipitation[2]);
+    const monthlyClimate = this.viewMode === 10
+      ? this.simulation.monthlyPrecipitation
+      : this.simulation.monthlyTemperature;
+    render.setTexture("monthlyClimate0", 11, monthlyClimate[0]);
+    render.setTexture("monthlyClimate1", 12, monthlyClimate[1]);
+    render.setTexture("monthlyClimate2", 13, monthlyClimate[2]);
     render.setFloat("waterLevel", this.getWaterLevel());
+    render.setInteger(
+      "climatologyMonthsAvailable",
+      this.monthlySampleCounts.filter((count) => count > 0).length,
+    );
     render.setInteger("viewMode", this.viewMode);
     render.setInteger("grayscale", Number(this.controls.grayscale.checked));
     this.meshes.fullscreen.draw();

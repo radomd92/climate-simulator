@@ -709,7 +709,18 @@ input[type="checkbox"] {
 }
 
 .temperature-gradient {
-  background-image: url("assets/temperature-gradient.png");
+  background-image: linear-gradient(
+    to right,
+    #4b2c82 0%,
+    #2458a6 23.0769%,
+    #1f9bc1 42.3077%,
+    #72d8d1 57.6923%,
+    #3ca65a 61.5385%,
+    #f2d34f 69.2308%,
+    #f28c28 80.7692%,
+    #e84d2f 92.3077%,
+    #9f1f24 100%
+  );
 }
 
 .precipitation-gradient {

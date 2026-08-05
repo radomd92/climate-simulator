@@ -307,7 +307,7 @@
           <div class="view-modes">
             <label><input type="radio" name="view-mode" value="0"> Heightmap</label>
             <label><input type="radio" name="view-mode" value="1"> Water vapor</label>
-            <label><input type="radio" name="view-mode" value="2"> Temperature</label>
+            <label><input type="radio" name="view-mode" value="2"> Current temperature</label>
             <label><input type="radio" name="view-mode" value="3" checked> Biomes</label>
             <label><input type="radio" name="view-mode" value="4"> Wind</label>
             <label><input type="radio" name="view-mode" value="5"> Air pressure</label>
@@ -316,6 +316,9 @@
             <label><input type="radio" name="view-mode" value="8"> Deep currents</label>
             <label><input type="radio" name="view-mode" value="9"> Precipitation rate</label>
             <label><input type="radio" name="view-mode" value="10"> Annual precipitation</label>
+            <label><input type="radio" name="view-mode" value="11"> Annual mean temperature</label>
+            <label><input type="radio" name="view-mode" value="12"> Coldest monthly mean</label>
+            <label><input type="radio" name="view-mode" value="13"> Warmest monthly mean</label>
           </div>
           <div class="simulation-actions">
             <label class="simulation-progress" for="simulation-progress">
@@ -391,7 +394,35 @@
 
         <div class="legend" id="temperature-legend" hidden>
           <div class="gradient temperature-gradient"></div>
-          <div class="legend-scale"><span>−50 °C</span><span>−10 °C</span><span>30 °C</span></div>
+          <div class="legend-scale"><span>−80 °C</span><span>−15 °C</span><span>50 °C</span></div>
+          <p class="legend-note">Current modeled surface temperature.</p>
+        </div>
+
+        <div class="legend" id="annual-mean-temperature-legend" hidden>
+          <div class="gradient temperature-gradient"></div>
+          <div class="legend-scale"><span>−80 °C</span><span>−15 °C</span><span>50 °C</span></div>
+          <p class="legend-note" data-temperature-climatology-status aria-live="polite">
+            Collecting temperature climatology · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Mean of the twelve modeled monthly means.</p>
+        </div>
+
+        <div class="legend" id="coldest-month-temperature-legend" hidden>
+          <div class="gradient temperature-gradient"></div>
+          <div class="legend-scale"><span>−80 °C</span><span>−15 °C</span><span>50 °C</span></div>
+          <p class="legend-note" data-temperature-climatology-status aria-live="polite">
+            Collecting temperature climatology · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Coldest monthly mean, not an absolute daily minimum.</p>
+        </div>
+
+        <div class="legend" id="warmest-month-temperature-legend" hidden>
+          <div class="gradient temperature-gradient"></div>
+          <div class="legend-scale"><span>−80 °C</span><span>−15 °C</span><span>50 °C</span></div>
+          <p class="legend-note" data-temperature-climatology-status aria-live="polite">
+            Collecting temperature climatology · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Warmest monthly mean, not an absolute daily maximum.</p>
         </div>
 
         <div class="legend" id="precipitation-legend" hidden>

@@ -105,6 +105,17 @@ simulation grid.
 
 ## Temperature and precipitation
 
+The Current temperature display shows the live modeled surface field. Annual
+mean temperature, Coldest monthly mean, and Warmest monthly mean displays use
+the twelve stored running monthly climatology values and become available after
+all months have been sampled. The minimum and maximum maps are monthly-mean
+extrema, not absolute daily or weather-event records. All four temperature maps
+share the same −80 °C to 50 °C color scale so colors can be compared directly.
+Zero Celsius is green, subzero temperatures transition through cyan, blue, and
+violet, and positive temperatures transition through yellow, orange, and red.
+Clicking the map reports the annual mean, both monthly-mean extrema, and the
+full monthly series.
+
 The Precipitation rate display maps the current season's annualized surface
 precipitation rate from `0` to `300+ cm/year`; it is not the completed annual
 total. The separate Annual precipitation display sums the twelve stored running
