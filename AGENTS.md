@@ -21,6 +21,7 @@ This is a dependency-free static WebGL 2 climate simulator. Keep it build-free u
 ## Invariants
 
 - Keep HTML control IDs synchronized with JavaScript selectors and event wiring.
+- The optional map magnifier is a pointer-transparent 2D canvas fed from the final WebGL canvas. Keep its toggle label/`aria-pressed`, hover visibility, Escape behavior, 3× crop math, and render-loop refresh synchronized.
 - Keep view-mode values 0-13 synchronized across HTML radios, `VIEW_NAMES`, `this.legends`, render-shader branches, overlays, and download names. View 9 is the current annualized precipitation rate; view 10 sums the twelve monthly precipitation channels; views 11-13 read the twelve monthly temperature channels for annual mean, coldest monthly mean, and warmest monthly mean.
 - Keep GLSL uniform names and output locations synchronized with JavaScript bindings, framebuffer attachments, and `drawBuffers`.
 - Current, annual-mean, coldest-month, and warmest-month temperature views share one −80 °C to 50 °C normalization. Keep the GLSL palette and CSS legends synchronized: 0 °C is green, subzero values progress through cyan/blue/violet, and positive values progress through yellow/orange/red.
@@ -29,6 +30,8 @@ This is a dependency-free static WebGL 2 climate simulator. Keep it build-free u
 - Pressure-map files use the versioned climate-simulator-pressure-map JSON format. Export latitude/longitude rather than internal canvas coordinates; validate the full import before replacing state, then regenerate forcing and reset climate statistics.
 - Preserve the surface-ocean -> deep-ocean -> atmosphere -> biome pass order and never read from a texture while rendering into it.
 - Scale model tendencies for `simulationTimeStep`; use the existing `scaledFraction`/`pow` patterns for speed-invariant relaxation and decay.
+- Atmospheric pressure gradients retain radial acceleration and add a bounded contour-parallel adjustment. Preserve hemisphere and rotation-direction reversal, continuous fading near the equator/zero rotation/weak gradients, and the 70-unit wind cap.
+- Keep pressure-driven moisture bounded: evaporation uses a saturating wind factor, marine monsoon gates require regional ocean-to-land flow in both the atmosphere and statistics shaders, and overlapping monsoon rainfall paths share one 950 cm/year cap.
 - Observable model, control, limitation, run, or deployment changes require matching README updates.
 - Avoid geographic special cases. Tune continuous mechanisms that work with arbitrary equirectangular heightmaps, retrograde rotation, and both hemispheric seasons.
 

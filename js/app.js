@@ -312,6 +312,15 @@ export class ClimateSimulator {
   constructor(documentRoot) {
     this.document = documentRoot;
     this.canvas = documentRoot.querySelector("#climate-canvas");
+    const magnifierCanvas = documentRoot.querySelector("#map-magnifier");
+    this.magnifier = {
+      button: documentRoot.querySelector("#toggle-map-magnifier"),
+      canvas: magnifierCanvas,
+      context: magnifierCanvas.getContext("2d"),
+      enabled: false,
+      pointer: null,
+      zoom: 3,
+    };
     this.status = documentRoot.querySelector("#loading-status");
     this.errorOutput = documentRoot.querySelector("#error-output");
     this.progress = documentRoot.querySelector("#simulation-progress");
@@ -453,10 +462,25 @@ export class ClimateSimulator {
       this.importPressureMapFile();
     });
     this.document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.pendingPressureAreaType) {
+      if (event.key !== "Escape") return;
+      if (this.pendingPressureAreaType) {
         this.pendingPressureAreaType = null;
         this.renderPressureAreas();
       }
+      if (this.magnifier.enabled) this.setMapMagnifierEnabled(false);
+    });
+
+    this.magnifier.button.addEventListener("click", () => {
+      this.setMapMagnifierEnabled(!this.magnifier.enabled);
+    });
+    this.canvas.addEventListener("pointerenter", (event) => {
+      this.updateMapMagnifierPointer(event);
+    });
+    this.canvas.addEventListener("pointermove", (event) => {
+      this.updateMapMagnifierPointer(event);
+    });
+    this.canvas.addEventListener("pointerleave", () => {
+      this.hideMapMagnifier();
     });
 
     this.controls.heightmap.addEventListener("change", () => this.loadUploadedHeightmap());
@@ -518,6 +542,85 @@ export class ClimateSimulator {
     this.canvas.addEventListener("click", (event) => this.selectMapPointFromEvent(event));
     this.canvas.addEventListener("keydown", (event) => this.handleMapSelectionKey(event));
     this.pointClimate.clearButton.addEventListener("click", () => this.clearMapSelection());
+  }
+
+  setMapMagnifierEnabled(enabled) {
+    this.magnifier.enabled = enabled;
+    this.magnifier.button.setAttribute("aria-pressed", String(enabled));
+    this.canvas.classList.toggle("magnifier-enabled", enabled);
+    const action = enabled ? "Disable" : "Enable";
+    this.magnifier.button.setAttribute("aria-label", `${action} map magnifier`);
+    this.magnifier.button.title = `${action} map magnifier`;
+    if (!enabled) this.hideMapMagnifier();
+  }
+
+  updateMapMagnifierPointer(event) {
+    if (!this.ready || !this.magnifier.enabled || event.pointerType === "touch") {
+      this.hideMapMagnifier();
+      return;
+    }
+    const bounds = this.canvas.getBoundingClientRect();
+    this.magnifier.pointer = {
+      x: Math.min(bounds.width, Math.max(0, event.clientX - bounds.left)),
+      y: Math.min(bounds.height, Math.max(0, event.clientY - bounds.top)),
+    };
+    this.refreshMapMagnifier();
+  }
+
+  refreshMapMagnifier() {
+    const { canvas, context, pointer, zoom } = this.magnifier;
+    if (!this.ready || !this.magnifier.enabled || !pointer || !context) return;
+
+    canvas.hidden = false;
+    const mapBounds = this.canvas.getBoundingClientRect();
+    const lensBounds = canvas.getBoundingClientRect();
+    const halfWidth = lensBounds.width / 2;
+    const halfHeight = lensBounds.height / 2;
+    const inset = 4;
+    const lensX = Math.min(
+      mapBounds.width - halfWidth - inset,
+      Math.max(halfWidth + inset, pointer.x),
+    );
+    const lensY = Math.min(
+      mapBounds.height - halfHeight - inset,
+      Math.max(halfHeight + inset, pointer.y),
+    );
+    canvas.style.left = `${lensX}px`;
+    canvas.style.top = `${lensY}px`;
+    canvas.style.transform = "translate(-50%, -50%)";
+
+    const scaleX = this.canvas.width / mapBounds.width;
+    const scaleY = this.canvas.height / mapBounds.height;
+    const sourceWidth = lensBounds.width * scaleX / zoom;
+    const sourceHeight = lensBounds.height * scaleY / zoom;
+    const sourceX = Math.min(
+      this.canvas.width - sourceWidth,
+      Math.max(0, pointer.x * scaleX - sourceWidth / 2),
+    );
+    const sourceY = Math.min(
+      this.canvas.height - sourceHeight,
+      Math.max(0, pointer.y * scaleY - sourceHeight / 2),
+    );
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(
+      this.canvas,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+  }
+
+  hideMapMagnifier() {
+    this.magnifier.pointer = null;
+    this.magnifier.canvas.hidden = true;
   }
 
   setControlTab(selectedTab, focus = false) {
@@ -1051,6 +1154,7 @@ export class ClimateSimulator {
       this.clearSimulation();
 
       this.ready = true;
+      this.magnifier.button.disabled = false;
       this.step();
       this.status.hidden = true;
       this.timer = window.setInterval(() => this.step(), UPDATE_INTERVAL_MS);
@@ -1577,6 +1681,7 @@ export class ClimateSimulator {
     stats.setTexture("previousStatsA", 2, this.simulation.climateStatsA[sourceIndex]);
     stats.setTexture("previousStatsB", 3, this.simulation.climateStatsB[sourceIndex]);
     stats.setTexture("heightmap", 4, this.textures.heightmap);
+    stats.setTexture("windMap", 5, this.simulation.wind[1 - this.pingPongIndex]);
     stats.setFloat("sampleCount", this.climateSampleCount);
     stats.setFloat("solarDeclination", this.getSolarDeclination());
     stats.setFloat("waterLevel", this.getWaterLevel());
@@ -2073,6 +2178,7 @@ export class ClimateSimulator {
     this.meshes.fullscreen.draw();
 
     this.drawOverlays();
+    this.refreshMapMagnifier();
   }
 
   drawOverlays() {

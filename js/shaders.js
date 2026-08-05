@@ -428,6 +428,30 @@ export const shaders = {
       return 1.0 - smoothstep(waterLevel - 0.025, waterLevel + 0.025, height);
     }
 
+    float getRegionalOnshoreFlow(vec2 uv, vec2 wind, float latitude) {
+      float cosineLatitude = max(cos(radians(latitude)), 0.15);
+      float zonalOffset = 0.04 / cosineLatitude;
+      float meridionalOffset = 0.08;
+      float windSpeed = length(wind);
+      vec2 windDirection = wind / max(windSpeed, 0.001);
+      float oceanWest = getOceanWeight(uv - vec2(zonalOffset, 0.0));
+      float oceanEast = getOceanWeight(uv + vec2(zonalOffset, 0.0));
+      float oceanSouth = getOceanWeight(uv - vec2(0.0, meridionalOffset));
+      float oceanNorth = getOceanWeight(uv + vec2(0.0, meridionalOffset));
+      float onshoreFlux = max(
+        max(
+          oceanWest * max(windDirection.x, 0.0),
+          oceanEast * max(-windDirection.x, 0.0)
+        ),
+        max(
+          oceanSouth * max(windDirection.y, 0.0),
+          oceanNorth * max(-windDirection.y, 0.0)
+        )
+      );
+      float windSupport = smoothstep(2.0, 10.0, windSpeed);
+      return windSupport * smoothstep(0.08, 0.55, onshoreFlux);
+    }
+
     float getOceanEquilibriumTemperature(float latitude) {
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
       float temperature = 273.15 + mix(-45.0, 30.0, solarFactor) - 3.0;
@@ -568,6 +592,35 @@ export const shaders = {
       wind = wind * pow(drag, simulationTimeStep)
         + simulationTimeStep * (pressureAcceleration + coriolisAcceleration);
 
+      // Compact pressure systems reach a rotating, approximately geostrophic
+      // flow faster than this coarse grid can resolve from Coriolis alone.
+      // Relax only the contour-parallel component so surface inflow/outflow
+      // from the radial pressure force remains present.
+      float pressureGradientStrength = length(pressureGradient);
+      vec2 counterClockwisePressureTangent = vec2(
+        -pressureGradient.y,
+        pressureGradient.x
+      ) / max(pressureGradientStrength, 0.00001);
+      float rotationMagnitude = min(sqrt(abs(rotationRatio)), 1.5);
+      float hemisphereRotation = sign(rotationRatio)
+        * latitude / sqrt(latitude * latitude + 64.0);
+      float pressureCirculationSpeed = min(
+        50.0,
+        6500.0 * pressureGradientStrength * rotationMagnitude
+      );
+      float pressureCirculationTarget = hemisphereRotation
+        * pressureCirculationSpeed;
+      float currentPressureCirculation = dot(
+        wind,
+        counterClockwisePressureTangent
+      );
+      float pressureCirculationCoupling = 0.04
+        * smoothstep(0.05, 0.30, rotationMagnitude)
+        * smoothstep(0.0002, 0.0030, pressureGradientStrength);
+      wind += scaledFraction(pressureCirculationCoupling)
+        * (pressureCirculationTarget - currentPressureCirculation)
+        * counterClockwisePressureTangent;
+
       // Large-scale circulation is a weak relaxation target, not a fixed
       // velocity. Thermal pressure gradients can still create monsoons and
       // deflect the latitude bands around continents.
@@ -656,7 +709,18 @@ export const shaders = {
       float orographicLift = 0.0;
       float condensedWater = 0.0;
       if (height < waterLevel) {
-        float evaporationCoefficient = 25.0 + 19.0 * windSpeed;
+        float rawEvaporationWindFactor = (25.0 + 19.0 * windSpeed)
+          * max(windSpeed, 0.5);
+        // Strong manually forced pressure systems should enhance evaporation,
+        // but not with an effectively quadratic and unbounded wind response.
+        float excessEvaporationWind = max(
+          rawEvaporationWindFactor - 2150.0,
+          0.0
+        );
+        float evaporationWindFactor = min(rawEvaporationWindFactor, 2150.0)
+          + 3850.0 * (
+            1.0 - exp(-excessEvaporationWind / 3850.0)
+          );
         float saturationPressure = exp(
           77.3450 + 0.0057 * temperature - 7235.0 / temperature
         ) / pow(temperature, 8.2);
@@ -666,13 +730,12 @@ export const shaders = {
         float saturatedHumidityRatio = saturationPressure / (
           atmosphericPressure - saturationPressure
         );
-        float evaporationRate = evaporationCoefficient * (
+        float evaporationRate = evaporationWindFactor * (
           saturatedHumidityRatio - humidityRatio
         );
         waterVapor += simulationTimeStep
           * 0.0000015
-          * evaporationRate
-          * max(windSpeed, 0.5);
+          * evaporationRate;
         float seasonalOceanEquilibrium = getOceanEquilibriumTemperature(latitude);
         float annualOceanEquilibrium = getAnnualOceanEquilibriumTemperature(latitude);
         float inversionReference = mix(
@@ -772,16 +835,26 @@ export const shaders = {
         polewardHeight - height
       ) * polewardLandConnection;
       float marineHumidity = relativeHumidity * marineMoisture;
-      float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity);
+      float regionalOnshoreFlow = getRegionalOnshoreFlow(
+        textureCoordinate,
+        wind,
+        latitude
+      );
+      float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity)
+        * regionalOnshoreFlow;
       float temperateHumidOnshoreFlow = smoothstep(0.14, 0.36, marineHumidity)
-        * smoothstep(24.0, 32.0, abs(latitude));
-      float deepMarineMonsoon = smoothstep(0.28, 0.42, marineHumidity);
+        * smoothstep(24.0, 32.0, abs(latitude))
+        * regionalOnshoreFlow;
+      float deepMarineMonsoon = smoothstep(0.28, 0.42, marineHumidity)
+        * regionalOnshoreFlow;
       float humidOnshoreFlow = max(
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
       );
       float monsoonLatitude = 1.0 - smoothstep(28.0, 44.0, abs(latitude));
-      float plateauMonsoonAccess = equatorwardOcean * plateauMonsoon;
+      float plateauMonsoonAccess = equatorwardOcean
+        * plateauMonsoon
+        * regionalOnshoreFlow;
       float monsoonOceanAccess = max(
         humidOnshoreFlow,
         plateauMonsoonAccess
@@ -853,18 +926,30 @@ export const shaders = {
         * monsoonOrography
         * monsoonInversionFactor;
       float marineMonsoonTerrainFactor = 0.60 + 0.40 * monsoonOrography;
-      float monsoonConvectivePrecipitation = 950.0
+      float plateauMonsoonPrecipitation = 950.0
         * plateauMonsoonAscent
         * (0.30 + 0.70 * monsoonOrography)
-        * monsoonInversionFactor
-        + 950.0
+        * monsoonInversionFactor;
+      float temperateMonsoonPrecipitation = 950.0
         * temperateMonsoonAscent
         * marineMonsoonTerrainFactor
-        * monsoonInversionFactor
-        + 900.0
+        * monsoonInversionFactor;
+      float deepMarineMonsoonPrecipitation = 900.0
         * deepMarineMonsoonAscent
         * marineMonsoonTerrainFactor
         * monsoonInversionFactor;
+      // These describe overlapping interpretations of the same moist inflow,
+      // so share one capped budget rather than adding three rainfall floors.
+      float monsoonConvectivePrecipitation = min(
+        950.0,
+        max(
+          plateauMonsoonPrecipitation,
+          max(
+            temperateMonsoonPrecipitation,
+            deepMarineMonsoonPrecipitation
+          )
+        )
+      );
       float annualPrecipitation = convectivePrecipitation
         + terrainPrecipitation
         + monsoonTerrainPrecipitation
@@ -926,6 +1011,7 @@ export const shaders = {
     uniform sampler2D previousStatsA;
     uniform sampler2D previousStatsB;
     uniform sampler2D heightmap;
+    uniform sampler2D windMap;
     uniform float sampleCount;
     uniform float solarDeclination;
     uniform float waterLevel;
@@ -937,6 +1023,30 @@ export const shaders = {
     float getOceanWeight(vec2 uv) {
       float height = texture(heightmap, uv).r;
       return 1.0 - smoothstep(waterLevel - 0.025, waterLevel + 0.025, height);
+    }
+
+    float getRegionalOnshoreFlow(vec2 uv, vec2 wind, float latitude) {
+      float cosineLatitude = max(cos(radians(latitude)), 0.15);
+      float zonalOffset = 0.04 / cosineLatitude;
+      float meridionalOffset = 0.08;
+      float windSpeed = length(wind);
+      vec2 windDirection = wind / max(windSpeed, 0.001);
+      float oceanWest = getOceanWeight(uv - vec2(zonalOffset, 0.0));
+      float oceanEast = getOceanWeight(uv + vec2(zonalOffset, 0.0));
+      float oceanSouth = getOceanWeight(uv - vec2(0.0, meridionalOffset));
+      float oceanNorth = getOceanWeight(uv + vec2(0.0, meridionalOffset));
+      float onshoreFlux = max(
+        max(
+          oceanWest * max(windDirection.x, 0.0),
+          oceanEast * max(-windDirection.x, 0.0)
+        ),
+        max(
+          oceanSouth * max(windDirection.y, 0.0),
+          oceanNorth * max(-windDirection.y, 0.0)
+        )
+      );
+      float windSupport = smoothstep(2.0, 10.0, windSpeed);
+      return windSupport * smoothstep(0.08, 0.55, onshoreFlux);
     }
 
     void main() {
@@ -986,9 +1096,17 @@ export const shaders = {
         polewardHeight - height
       ) * polewardLandConnection;
       float marineHumidity = relativeHumidity * marineMoisture;
-      float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity);
+      vec2 wind = texture(windMap, textureCoordinate).rg;
+      float regionalOnshoreFlow = getRegionalOnshoreFlow(
+        textureCoordinate,
+        wind,
+        latitude
+      );
+      float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity)
+        * regionalOnshoreFlow;
       float temperateHumidOnshoreFlow = smoothstep(0.14, 0.36, marineHumidity)
-        * smoothstep(24.0, 32.0, abs(latitude));
+        * smoothstep(24.0, 32.0, abs(latitude))
+        * regionalOnshoreFlow;
       float humidOnshoreFlow = max(
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
@@ -997,7 +1115,7 @@ export const shaders = {
       float monsoonPotential = seasonalLandHeating
         * monsoonLatitude
         * max(
-          equatorwardOcean * plateauMonsoon,
+          equatorwardOcean * plateauMonsoon * regionalOnshoreFlow,
           humidOnshoreFlow
         );
 

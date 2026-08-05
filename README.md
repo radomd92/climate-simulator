@@ -28,9 +28,14 @@ Simulation tab, place them by clicking the map, and move them by dragging or
 with the arrow keys. Selecting a marker also exposes a relative intensity
 control from 0.1× to 3×. The areas are rasterized into a smooth,
 longitude-wrapping pressure-forcing texture, avoiding shader uniform-count
-limits. The existing pressure-gradient and Coriolis terms therefore steer winds
-outward from highs and inward toward lows without prescribing a wind direction
-directly. Overlapping forcing is capped to keep the solver stable.
+limits. Radial pressure-gradient acceleration still produces surface outflow
+from highs and inflow toward lows. A bounded geostrophic adjustment also steers
+the wind along pressure contours, producing clockwise high-pressure and
+counterclockwise low-pressure circulation in the northern hemisphere, with the
+directions reversed in the southern hemisphere and under retrograde rotation.
+The circular tendency fades continuously near the equator, with slow planetary
+rotation, and where the pressure gradient is weak. Overlapping forcing is capped
+to keep the solver stable.
 
 Pressure maps can be exported as versioned JSON and imported again from the
 Simulation tab. Each file stores every area's high/low type, latitude,
@@ -57,7 +62,9 @@ the source direction reverses with the circulation. A separate marine-moisture
 tracer is generated over water, transported and mixed with humidity, and
 gradually decays over land. Humidity-driven monsoons require a high product of
 relative humidity and recent marine provenance, preventing residual continental
-humidity from activating a full monsoon.
+humidity from activating a full monsoon. The marine gate also requires
+regional wind to cross from a sampled ocean sector toward land, so circular or
+offshore flow does not count as monsoon inflow merely because it is humid.
 
 ## Ocean model
 
@@ -124,7 +131,11 @@ the first automatic climate year and remains available while later years refine
 the monthly climatology. Both maps combine atmospheric humidity with ascent,
 subsidence, convergence, monsoon convection, terrain condensation, and cold
 coastal upwelling effects; they are distinct from the atmospheric Water vapor
-display. The selected-point charts use the same twelve equal-length model-month
+display. Ocean evaporation uses a saturating wind response so strong manual
+pressure systems cannot multiply the moisture source without bound. Overlapping
+plateau, temperate, and deep-marine monsoon paths share one capped rainfall
+budget instead of stacking independent rainfall floors. The selected-point
+charts use the same twelve equal-length model-month
 totals and sum those months for the annual total.
 
 Outside the deep tropics, prescribed ascent over land is limited by simulated
@@ -208,7 +219,9 @@ Open <http://localhost:8000>.
 
 The control panel separates heightmap and preset selection under **World** from
 all numeric and seasonal model parameters under **Simulation**. The tabs also
-support Left/Right arrow, Home, and End keyboard navigation.
+support Left/Right arrow, Home, and End keyboard navigation. The magnifying-glass
+button on the map enables a live 3× hover lens; press Escape or click the button
+again to disable it.
 
 The simulation defaults to 1366 × 683 pixels. Override its internal rendering
 resolution with URL parameters, for example:

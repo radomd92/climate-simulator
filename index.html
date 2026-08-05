@@ -293,6 +293,26 @@
           >
             Your browser does not support HTML canvas.
           </canvas>
+          <button
+            id="toggle-map-magnifier"
+            class="map-magnifier-toggle"
+            type="button"
+            aria-label="Enable map magnifier"
+            aria-controls="map-magnifier"
+            aria-pressed="false"
+            title="Enable map magnifier"
+            disabled
+          >
+            <span class="map-magnifier-icon" aria-hidden="true"></span>
+          </button>
+          <canvas
+            id="map-magnifier"
+            class="map-magnifier"
+            width="240"
+            height="240"
+            aria-hidden="true"
+            hidden
+          ></canvas>
           <div id="map-selection-marker" class="map-selection-marker" hidden></div>
           <div
             id="pressure-area-markers"
