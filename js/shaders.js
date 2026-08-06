@@ -402,6 +402,7 @@ export const shaders = {
     uniform sampler2D previousPressure;
     uniform sampler2D seaSurfaceTemperature;
     uniform sampler2D pressureForcingMap;
+    uniform sampler2D meanWindMap;
     uniform float waterLevel;
     uniform float rotationSpeed;
     uniform float globalCirculation;
@@ -470,6 +471,61 @@ export const shaders = {
       return 1.0 - pow(1.0 - clamp(fraction, 0.0, 0.999999), simulationTimeStep);
     }
 
+    float getMaritimeOceanWeight(vec2 uv) {
+      float height = texture(heightmap, uv).r;
+      // Fade only on the ocean side so low inland terrain is never treated
+      // as a marine temperature source.
+      return 1.0 - smoothstep(waterLevel - 0.006, waterLevel, height);
+    }
+
+    void getWindDrivenMaritimeTemperature(
+      vec2 uv,
+      float latitude,
+      out float maritimeInfluence,
+      out float upwindOceanTemperature
+    ) {
+      vec2 meanWind = texture(meanWindMap, uv).rg;
+      float meanWindSpeed = length(meanWind);
+      vec2 meanWindDirection = meanWind / max(meanWindSpeed, 0.001);
+      float cosineLatitude = max(cos(radians(latitude)), 0.15);
+      float reachDegrees = 18.0 * smoothstep(2.0, 28.0, meanWindSpeed);
+      vec2 maximumUpwindOffset = meanWindDirection * vec2(
+        reachDegrees / (360.0 * cosineLatitude),
+        reachDegrees / 180.0
+      );
+
+      float oceanSignal = 0.0;
+      float oceanTemperatureWeight = 0.0;
+      float weightedOceanTemperature = 0.0;
+      for (int sampleIndex = 1; sampleIndex <= 6; sampleIndex += 1) {
+        float distanceFraction = float(sampleIndex) / 6.0;
+        vec2 sampleCoordinate =
+          uv - maximumUpwindOffset * distanceFraction;
+        sampleCoordinate.y = clamp(sampleCoordinate.y, 0.0, 1.0);
+        float oceanWeight = getMaritimeOceanWeight(sampleCoordinate);
+        float distanceWeight = exp(-2.0 * distanceFraction);
+        float weightedOcean = oceanWeight * distanceWeight;
+        float sampledTemperature =
+          texture(seaSurfaceTemperature, sampleCoordinate).r;
+        if (sampledTemperature <= 100.0) {
+          sampledTemperature = getOceanEquilibriumTemperature(
+            getLatitude(sampleCoordinate)
+          );
+        }
+        oceanSignal += weightedOcean;
+        oceanTemperatureWeight += weightedOcean;
+        weightedOceanTemperature += weightedOcean * sampledTemperature;
+      }
+
+      float windSupport = smoothstep(2.0, 8.0, meanWindSpeed);
+      maritimeInfluence = windSupport * min(
+        1.0 - exp(-1.1 * oceanSignal),
+        0.65
+      );
+      upwindOceanTemperature = weightedOceanTemperature
+        / max(oceanTemperatureWeight, 0.001);
+    }
+
     float getSurfaceTemperature(vec2 uv) {
       float latitude = getLatitude(uv);
       float height = texture(heightmap, uv).r;
@@ -507,13 +563,37 @@ export const shaders = {
       float temperature = 273.15 + mix(-45.0, 30.0, latitudeBlend);
       // Most of the heightmap's land range represents low terrain. Applying
       // the lapse rate nonlinearly reserves strong cooling for mountains.
-      temperature -= pow(elevation, 1.7) * 70.0;
+      float elevationCooling = pow(elevation, 1.7) * 70.0;
+      temperature -= elevationCooling;
 
-      // Land has less thermal inertia than water, creating the seasonal
-      // pressure contrast that reverses monsoon flow.
+      // Continental interiors retain strong seasonality. Where the annual
+      // vector-mean wind traces back to ocean, current SST is transported
+      // inland with a reach controlled by the consistency and speed of wind.
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
       temperature += seasonality * 50.0;
-      return max(temperature * solarIrradiance / 1361.0, 1.0);
+      float insolationScale = solarIrradiance / 1361.0;
+      float continentalTemperature = max(
+        temperature * insolationScale,
+        1.0
+      );
+      float maritimeInfluence;
+      float upwindOceanTemperature;
+      getWindDrivenMaritimeTemperature(
+        uv,
+        latitude,
+        maritimeInfluence,
+        upwindOceanTemperature
+      );
+      // SST already includes the insolation response from the ocean pass.
+      float maritimeTemperature = max(
+        upwindOceanTemperature - elevationCooling * insolationScale,
+        1.0
+      );
+      return mix(
+        continentalTemperature,
+        maritimeTemperature,
+        maritimeInfluence
+      );
     }
 
     float getCustomPressureOffset(vec2 uv) {
@@ -1031,6 +1111,7 @@ export const shaders = {
     uniform sampler2D waterVaporMap;
     uniform sampler2D previousStatsA;
     uniform sampler2D previousStatsB;
+    uniform sampler2D previousMeanWind;
     uniform sampler2D heightmap;
     uniform sampler2D windMap;
     uniform float sampleCount;
@@ -1040,6 +1121,7 @@ export const shaders = {
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 nextStatsA;
     layout(location = 1) out vec4 nextStatsB;
+    layout(location = 2) out vec2 nextMeanWind;
 
     float getOceanWeight(vec2 uv) {
       float height = texture(heightmap, uv).r;
@@ -1148,11 +1230,13 @@ export const shaders = {
           warmSeason ? precipitation : 0.0,
           monsoonPotential
         );
+        nextMeanWind = wind;
         return;
       }
 
       vec4 statsA = texture(previousStatsA, textureCoordinate);
       vec4 statsB = texture(previousStatsB, textureCoordinate);
+      vec2 meanWind = texture(previousMeanWind, textureCoordinate).rg;
       float sampleWeight = 1.0 / (sampleCount + 1.0);
 
       nextStatsA = vec4(
@@ -1167,6 +1251,7 @@ export const shaders = {
         mix(statsB.b, warmSeason ? precipitation : 0.0, sampleWeight),
         max(statsB.a, monsoonPotential)
       );
+      nextMeanWind = mix(meanWind, wind, sampleWeight);
     }
   `,
 

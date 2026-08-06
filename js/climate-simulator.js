@@ -102,6 +102,9 @@ export class ClimateSimulator {
     this.pingPongIndex = 0;
     this.climateStatsIndex = 0;
     this.climateSampleCount = 0;
+    this.windClimatologySourceIndex = 0;
+    this.windClimatologyTargetIndex = 1;
+    this.completedWindClimatologyIndex = null;
     this.monthlySampleCounts = Array(12).fill(0);
     this.seasonPasses = 0;
     this.seasonalSimulationAccumulator = 0;
@@ -781,6 +784,11 @@ export class ClimateSimulator {
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
     ];
+    // Two textures accumulate the active year while the third retains the
+    // completed annual vector mean used by land-temperature transport.
+    const windClimatology = Array.from({ length: 3 }, () => (
+      Texture2D.allocate(gl, width, height, gl.RG16F, gl.RG, gl.HALF_FLOAT)
+    ));
     // Each RGBA texture packs four consecutive months, January through December.
     const monthlyTemperature = Array.from({ length: 3 }, () => (
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
@@ -815,6 +823,9 @@ export class ClimateSimulator {
     });
     biomes.setSampling(linearWrapping);
     pressureForcing.setSampling(linearWrapping);
+    windClimatology.forEach((texture) => {
+      texture.setSampling(linearWrapping);
+    });
     [
       ...climateStatsA,
       ...climateStatsB,
@@ -858,6 +869,7 @@ export class ClimateSimulator {
     climateStats.forEach((framebuffer, index) => {
       framebuffer.attachColor(climateStatsA[index], 0);
       framebuffer.attachColor(climateStatsB[index], 1);
+      framebuffer.attachColor(windClimatology[index], 2);
       framebuffer.validate(`Climate statistics ${index}`);
     });
 
@@ -885,6 +897,7 @@ export class ClimateSimulator {
       biomes,
       climateStatsA,
       climateStatsB,
+      windClimatology,
       monthlyTemperature,
       monthlySeaSurfaceTemperature,
       monthlyPrecipitation,
@@ -968,10 +981,24 @@ export class ClimateSimulator {
     } else if (this.controls.autoSeasons.checked && !wasWarmingUp) {
       this.updateClimateStatistics();
       if (completedYear) {
-        this.classifyClimateZones();
-        this.completedClimateYears += 1;
-        this.climateZoneStatus.textContent = `Classified from climate year ${this.completedClimateYears}`;
-        this.clearClimateStatistics({ preserveMonthlyPatterns: true });
+        const hadCompletedWindClimatology =
+          this.completedWindClimatologyIndex !== null;
+        if (hadCompletedWindClimatology) {
+          this.classifyClimateZones();
+        }
+        this.completeWindClimatologyYear();
+        if (hadCompletedWindClimatology) {
+          this.completedClimateYears += 1;
+          this.climateZoneStatus.textContent =
+            "Classified from climate year " + this.completedClimateYears;
+        } else {
+          this.climateZoneStatus.textContent =
+            "Wind climatology ready · collecting the first climate year…";
+        }
+        this.clearClimateStatistics({
+          preserveMonthlyPatterns: hadCompletedWindClimatology,
+          preserveWindClimatology: true,
+        });
       }
     }
 
@@ -1100,15 +1127,50 @@ export class ClimateSimulator {
     gl.clearColor(0, 0, 0, 1);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.climateZoneStatus.textContent = this.controls.autoSeasons.checked
-      ? "Collecting the first climate year…"
-      : "Enable automatic seasons to classify a climate year";
+      ? "Collecting annual wind climatology…"
+      : "Enable automatic seasons to collect wind and climate normals";
   }
 
-  clearClimateStatistics({ preserveMonthlyPatterns = false } = {}) {
+  completeWindClimatologyYear() {
+    if (this.climateSampleCount === 0) return;
+
+    this.completedWindClimatologyIndex = this.windClimatologySourceIndex;
+    const accumulatorIndices = [0, 1, 2].filter(
+      (index) => index !== this.completedWindClimatologyIndex,
+    );
+    [
+      this.windClimatologySourceIndex,
+      this.windClimatologyTargetIndex,
+    ] = accumulatorIndices;
+  }
+
+  clearClimateStatistics({
+    preserveMonthlyPatterns = false,
+    preserveWindClimatology = false,
+  } = {}) {
     const gl = this.gl;
     this.simulation.climateStatsFramebuffers.forEach((framebuffer) => {
       framebuffer.use([0, 1]);
       gl.clear(gl.COLOR_BUFFER_BIT);
+    });
+
+    if (!preserveWindClimatology) {
+      this.completedWindClimatologyIndex = null;
+      this.windClimatologySourceIndex = 0;
+      this.windClimatologyTargetIndex = 1;
+    }
+    const windIndicesToClear = preserveWindClimatology
+      ? [
+        this.windClimatologySourceIndex,
+        this.windClimatologyTargetIndex,
+      ]
+      : [0, 1, 2];
+    const windFramebuffer = this.simulation.climateStatsFramebuffers[0];
+    const zeroMeanWind = new Float32Array([0, 0, 0, 0]);
+    windIndicesToClear.forEach((index) => {
+      windFramebuffer.attachColor(this.simulation.windClimatology[index], 2);
+      windFramebuffer.use([0, 1, 2]);
+      gl.clearBufferfv(gl.COLOR, 2, zeroMeanWind);
     });
     if (!preserveMonthlyPatterns) {
       gl.colorMask(true, true, true, true);
@@ -1136,8 +1198,15 @@ export class ClimateSimulator {
   updateClimateStatistics() {
     const sourceIndex = this.climateStatsIndex;
     const targetIndex = 1 - sourceIndex;
+    const windSourceIndex = this.windClimatologySourceIndex;
+    const windTargetIndex = this.windClimatologyTargetIndex;
     const monthIndex = this.getClimateMonthIndex();
-    this.simulation.climateStatsFramebuffers[targetIndex].use([0, 1]);
+    const statsFramebuffer = this.simulation.climateStatsFramebuffers[targetIndex];
+    statsFramebuffer.attachColor(
+      this.simulation.windClimatology[windTargetIndex],
+      2,
+    );
+    statsFramebuffer.use([0, 1, 2]);
 
     const stats = this.programs.climateStats;
     stats.use();
@@ -1147,6 +1216,11 @@ export class ClimateSimulator {
     stats.setTexture("previousStatsB", 3, this.simulation.climateStatsB[sourceIndex]);
     stats.setTexture("heightmap", 4, this.textures.heightmap);
     stats.setTexture("windMap", 5, this.simulation.wind[1 - this.pingPongIndex]);
+    stats.setTexture(
+      "previousMeanWind",
+      6,
+      this.simulation.windClimatology[windSourceIndex],
+    );
     stats.setFloat("sampleCount", this.climateSampleCount);
     stats.setFloat("solarDeclination", this.getSolarDeclination());
     stats.setFloat("waterLevel", this.getWaterLevel());
@@ -1201,6 +1275,8 @@ export class ClimateSimulator {
     gl.disable(gl.BLEND);
 
     this.climateStatsIndex = targetIndex;
+    this.windClimatologySourceIndex = windTargetIndex;
+    this.windClimatologyTargetIndex = windSourceIndex;
     this.climateSampleCount += 1;
     this.monthlySampleCounts[monthIndex] += 1;
     this.updateAnnualPrecipitationStatus();
@@ -1365,7 +1441,8 @@ export class ClimateSimulator {
 
   updateSelectedPointClimateType(x, y) {
     if (this.completedClimateYears === 0) {
-      this.pointClimate.type.textContent = "Köppen type available after the first climate year.";
+      this.pointClimate.type.textContent =
+        "Köppen type available after wind spin-up and the first climate year.";
       return;
     }
 
@@ -1450,6 +1527,13 @@ export class ClimateSimulator {
     advection.setTexture("previousPressure", 3, this.simulation.pressure[sourceIndex]);
     advection.setTexture("seaSurfaceTemperature", 4, this.simulation.seaSurfaceTemperature[targetIndex]);
     advection.setTexture("pressureForcingMap", 5, this.simulation.pressureForcing);
+    const activeWindClimatologyIndex = this.completedWindClimatologyIndex
+      ?? this.windClimatologySourceIndex;
+    advection.setTexture(
+      "meanWindMap",
+      6,
+      this.simulation.windClimatology[activeWindClimatologyIndex],
+    );
     advection.setFloat("waterLevel", waterLevel);
     advection.setFloat("rotationSpeed", this.getRotationSpeed());
     advection.setFloat("globalCirculation", this.getGlobalCirculation());

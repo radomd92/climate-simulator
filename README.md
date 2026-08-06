@@ -155,18 +155,28 @@ convergent humid coasts and plateau-driven monsoons.
 
 Land and ocean temperatures apply seasonal anomalies around an annual
 latitude-based equilibrium rather than treating solar declination as an
-instantaneous latitude shift. Land responds more strongly than the ocean,
-retaining the thermal contrast that drives monsoons without producing
+instantaneous latitude shift. Continental land responds more strongly than the
+ocean, retaining the thermal contrast that drives monsoons without producing
 unrealistically cold subtropical winters. Land temperature also applies a
 nonlinear elevation lapse curve with a maximum `70 K` relief penalty. The
 exponent concentrates cooling in plateaus and mountain ranges such as the Andes
 and Himalayas while limiting the effect on low terrain.
 
-This local land-temperature calculation does not yet transport ocean heat into
-nearby land cells or reduce seasonal amplitude by distance from the sea.
-Maritime regions such as western France and New Zealand can therefore be
-classified too continentally; the Köppen-like Cfb branch exists, but these
-coasts often fail its above-freezing coldest-month threshold.
+The seasonal statistics pass also accumulates the vector mean of surface wind
+over a model year. Opposing seasonal winds cancel, while persistent prevailing
+winds retain both direction and strength. The first automatic year is a
+wind-climatology spin-up, so its transitional monthly temperatures are
+discarded rather than classified. A completed wind year remains frozen for
+temperature transport while two other textures accumulate the next year. The
+following year is therefore the first complete Köppen-classified climate year.
+
+For each land cell, temperature traces six samples upwind through the current
+SST field. Mean-wind speed continuously expands the maximum physical reach from
+zero to 18 degrees, and distant ocean samples receive less weight. An
+ocean-side-only shoreline mask prevents low inland terrain from becoming a
+false marine source, maritime influence is capped at 65%, and the land elevation
+penalty remains intact. The result transports seasonal sea warmth and coolness
+inland along persistent winds without fixed coastal radii or geographic masks.
 
 The simulator batches GPU passes during its initial 600-pass warm-up, then
 switches to a lower-cost maintenance rate. Changing a planetary parameter
