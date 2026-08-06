@@ -243,6 +243,12 @@ In the repository settings, select **GitHub Actions** as the source under
 
 - `index.html` contains semantic page markup and controls.
 - `styles.css` contains layout and responsive presentation.
-- `js/app.js` contains WebGL resources, simulation passes, and interactions.
+- `js/app.js` is the minimal browser entry point.
+- `js/climate-simulator.js` coordinates simulation passes, controls, seasons, and rendering.
+- `js/webgl.js` owns WebGL programs, meshes, textures, and framebuffers.
+- `js/pressure-map.js` validates, serializes, and rasterizes editable pressure systems.
+- `js/map-magnifier.js` owns the optional live hover lens.
+- `js/point-climate-panel.js` renders point tables and charts.
+- `js/simulation-config.js` and `js/climate-catalog.js` contain shared immutable configuration and labels.
 - `js/shaders.js` contains the named GLSL programs.
 - `assets/` contains local heightmaps and color lookup textures.

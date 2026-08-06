@@ -21,8 +21,9 @@ jobs:
 
       - name: Validate JavaScript
         run: |
-          node --check js/app.js
-          node --check js/shaders.js
+          for file in js/*.js; do
+            node --input-type=module --check < "$file"
+          done
 
       - name: Build static site
         run: |
