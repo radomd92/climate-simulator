@@ -85,6 +85,8 @@ export class ClimateSimulator {
       documentRoot.querySelector("#annual-mean-temperature-legend"),
       documentRoot.querySelector("#coldest-month-temperature-legend"),
       documentRoot.querySelector("#warmest-month-temperature-legend"),
+      documentRoot.querySelector("#ice-cap-legend"),
+      documentRoot.querySelector("#permafrost-legend"),
     ];
     this.temperatureClimatologyStatuses = Array.from(
       documentRoot.querySelectorAll("[data-temperature-climatology-status]"),
@@ -783,6 +785,9 @@ export class ClimateSimulator {
     const monthlyTemperature = Array.from({ length: 3 }, () => (
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
     ));
+    const monthlySeaSurfaceTemperature = Array.from({ length: 3 }, () => (
+      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
+    ));
     const monthlyPrecipitation = Array.from({ length: 3 }, () => (
       Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
     ));
@@ -814,6 +819,7 @@ export class ClimateSimulator {
       ...climateStatsA,
       ...climateStatsB,
       ...monthlyTemperature,
+      ...monthlySeaSurfaceTemperature,
       ...monthlyPrecipitation,
       climateZones,
     ].forEach((texture) => {
@@ -858,6 +864,7 @@ export class ClimateSimulator {
     const monthlyClimate = new Framebuffer(gl);
     monthlyClimate.attachColor(monthlyTemperature[0], 0);
     monthlyClimate.attachColor(monthlyPrecipitation[0], 1);
+    monthlyClimate.attachColor(monthlySeaSurfaceTemperature[0], 2);
     monthlyClimate.validate("Monthly climate");
 
     const climateZone = new Framebuffer(gl);
@@ -879,6 +886,7 @@ export class ClimateSimulator {
       climateStatsA,
       climateStatsB,
       monthlyTemperature,
+      monthlySeaSurfaceTemperature,
       monthlyPrecipitation,
       climateZones,
       advectionFramebuffers: advection,
@@ -1108,7 +1116,11 @@ export class ClimateSimulator {
         const framebuffer = this.simulation.monthlyClimateFramebuffer;
         framebuffer.attachColor(temperature, 0);
         framebuffer.attachColor(this.simulation.monthlyPrecipitation[index], 1);
-        framebuffer.use([0, 1]);
+        framebuffer.attachColor(
+          this.simulation.monthlySeaSurfaceTemperature[index],
+          2,
+        );
+        framebuffer.use([0, 1, 2]);
         gl.clear(gl.COLOR_BUFFER_BIT);
       });
       this.monthlySampleCounts.fill(0);
@@ -1151,7 +1163,11 @@ export class ClimateSimulator {
       this.simulation.monthlyPrecipitation[monthlyTextureIndex],
       1,
     );
-    monthlyFramebuffer.use([0, 1]);
+    monthlyFramebuffer.attachColor(
+      this.simulation.monthlySeaSurfaceTemperature[monthlyTextureIndex],
+      2,
+    );
+    monthlyFramebuffer.use([0, 1, 2]);
 
     const channelMask = [false, false, false, false];
     channelMask[monthlyChannelIndex] = true;
@@ -1172,6 +1188,11 @@ export class ClimateSimulator {
       "waterVaporMap",
       1,
       this.simulation.waterVapor[1 - this.pingPongIndex],
+    );
+    monthlyClimate.setTexture(
+      "seaSurfaceTemperature",
+      2,
+      this.simulation.seaSurfaceTemperature[1 - this.pingPongIndex],
     );
     this.meshes.fullscreen.draw();
 
@@ -1481,7 +1502,9 @@ export class ClimateSimulator {
     render.setTexture("deepOceanState", 10, this.simulation.deepOceanState[1 - this.pingPongIndex]);
     const monthlyClimate = this.viewMode === 10
       ? this.simulation.monthlyPrecipitation
-      : this.simulation.monthlyTemperature;
+      : (this.viewMode === 14
+        ? this.simulation.monthlySeaSurfaceTemperature
+        : this.simulation.monthlyTemperature);
     render.setTexture("monthlyClimate0", 11, monthlyClimate[0]);
     render.setTexture("monthlyClimate1", 12, monthlyClimate[1]);
     render.setTexture("monthlyClimate2", 13, monthlyClimate[2]);

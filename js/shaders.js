@@ -476,9 +476,30 @@ export const shaders = {
       float elevation = getElevation(height);
       float oceanTemperature = texture(seaSurfaceTemperature, uv).r;
       if (height < waterLevel) {
-        return oceanTemperature > 100.0
+        float oceanSurfaceTemperature = oceanTemperature > 100.0
           ? oceanTemperature
           : getOceanEquilibriumTemperature(latitude);
+        float seaIceFraction = 1.0 - smoothstep(
+          271.15,
+          273.15,
+          oceanSurfaceTemperature
+        );
+        float solarFactor = max(cos(radians(latitude)), 0.0);
+        float latitudeBlend = clamp(solarFactor, 0.2, 1.0);
+        float iceSurfaceTemperature =
+          273.15 + mix(-45.0, 30.0, latitudeBlend) - 4.0;
+        float seasonality =
+          sin(radians(latitude)) * sin(radians(solarDeclination));
+        iceSurfaceTemperature += seasonality * 35.0;
+        iceSurfaceTemperature = max(
+          iceSurfaceTemperature * solarIrradiance / 1361.0,
+          1.0
+        );
+        return mix(
+          oceanSurfaceTemperature,
+          min(oceanSurfaceTemperature, iceSurfaceTemperature),
+          seaIceFraction
+        );
       }
       float solarFactor = max(cos(radians(latitude)), 0.0);
       float latitudeBlend = clamp(solarFactor, 0.2, 1.0);
@@ -1154,10 +1175,12 @@ export const shaders = {
 
     uniform sampler2D temperatureMap;
     uniform sampler2D waterVaporMap;
+    uniform sampler2D seaSurfaceTemperature;
 
     in vec2 textureCoordinate;
     layout(location = 0) out vec4 monthlyTemperature;
     layout(location = 1) out vec4 monthlyPrecipitation;
+    layout(location = 2) out vec4 monthlySeaSurfaceTemperature;
 
     void main() {
       float temperature = texture(temperatureMap, textureCoordinate).r - 273.15;
@@ -1165,8 +1188,11 @@ export const shaders = {
         texture(waterVaporMap, textureCoordinate).g / 12.0,
         0.0
       );
+      float seaTemperature =
+        texture(seaSurfaceTemperature, textureCoordinate).r - 273.15;
       monthlyTemperature = vec4(temperature);
       monthlyPrecipitation = vec4(precipitation);
+      monthlySeaSurfaceTemperature = vec4(seaTemperature);
     }
   `,
 
@@ -1539,6 +1565,25 @@ export const shaders = {
           coldestMonthlyMean,
           warmestMonthlyMean
         );
+        if (viewMode == 14) {
+          bool isOcean = texture(heightmap, textureCoordinate).r < waterLevel;
+          outputColor = isOcean
+            ? (warmestMonthlyMean < 0.0
+              ? vec4(0.85, 0.96, 1.0, 1.0)
+              : vec4(0.04, 0.20, 0.30, 1.0))
+            : vec4(0.14, 0.12, 0.09, 1.0);
+          return;
+        }
+        if (viewMode == 15) {
+          bool isLand = texture(heightmap, textureCoordinate).r >= waterLevel;
+          outputColor = isLand
+            ? (warmestMonthlyMean < 0.0
+              ? vec4(0.62, 0.78, 0.84, 1.0)
+              : vec4(0.30, 0.29, 0.20, 1.0))
+            : vec4(0.04, 0.20, 0.30, 1.0);
+          return;
+        }
+
         float celsius;
         if (viewMode == 11) {
           celsius = annualMean;

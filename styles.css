@@ -822,6 +822,33 @@ input[type="checkbox"] {
   font-size: 0.72rem;
 }
 
+.binary-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.binary-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.binary-legend i {
+  width: 1.5rem;
+  height: 1rem;
+  border: 1px solid var(--line);
+}
+
+.ice-cap-frozen { background: #d9f4ff; }
+.ice-cap-open-water,
+.permafrost-ocean { background: #0a334d; }
+.ice-cap-land { background: #241e17; }
+.permafrost-frozen { background: #9dc8d6; }
+.permafrost-thawed { background: #4d4934; }
+
 .biome-legend {
   display: grid;
   grid-template-columns: repeat(9, minmax(5.5rem, 1fr));

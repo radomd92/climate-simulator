@@ -339,6 +339,8 @@
             <label><input type="radio" name="view-mode" value="11"> Annual mean temperature</label>
             <label><input type="radio" name="view-mode" value="12"> Coldest monthly mean</label>
             <label><input type="radio" name="view-mode" value="13"> Warmest monthly mean</label>
+            <label><input type="radio" name="view-mode" value="14"> Ice caps</label>
+            <label><input type="radio" name="view-mode" value="15"> Permafrost</label>
           </div>
           <div class="simulation-actions">
             <label class="simulation-progress" for="simulation-progress">
@@ -445,6 +447,30 @@
           <p class="legend-note">Warmest monthly mean, not an absolute daily maximum.</p>
         </div>
 
+        <div class="legend" id="ice-cap-legend" hidden>
+          <div class="binary-legend" aria-label="Ice-cap map colors">
+            <span><i class="ice-cap-frozen"></i>Year-round sea ice</span>
+            <span><i class="ice-cap-open-water"></i>Seasonally open water</span>
+            <span><i class="ice-cap-land"></i>Land</span>
+          </div>
+          <p class="legend-note" data-temperature-climatology-status aria-live="polite">
+            Collecting temperature climatology · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Ocean cells whose warmest modeled monthly sea-surface temperature remains below 0 °C.</p>
+        </div>
+
+        <div class="legend" id="permafrost-legend" hidden>
+          <div class="binary-legend" aria-label="Permafrost map colors">
+            <span><i class="permafrost-frozen"></i>Permafrost</span>
+            <span><i class="permafrost-thawed"></i>Seasonally thawed land</span>
+            <span><i class="permafrost-ocean"></i>Ocean</span>
+          </div>
+          <p class="legend-note" data-temperature-climatology-status aria-live="polite">
+            Collecting temperature climatology · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Land cells whose warmest modeled monthly surface temperature remains below 0 °C.</p>
+        </div>
+
         <div class="legend" id="precipitation-legend" hidden>
           <div class="gradient precipitation-gradient"></div>
           <div class="legend-scale"><span>0 cm/year</span><span>100 cm/year</span><span>300+ cm/year</span></div>
@@ -529,7 +555,7 @@
       <h2 id="limitations-heading">Limitations</h2>
       <ul>
         <li>The atmosphere is a single shallow-water layer, without vertical circulation or weather fronts.</li>
-        <li>The ocean uses two coupled layers rather than full 3D bathymetry and does not include tides or sea ice.</li>
+        <li>The ocean uses two coupled layers rather than full 3D bathymetry and does not include tides or a dynamic sea-ice layer.</li>
         <li>Temperature is calculated locally and the planet has a fixed spherical radius.</li>
         <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>
         <li>Seasonal forcing is represented by solar declination rather than a full orbital model.</li>

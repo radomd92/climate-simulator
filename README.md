@@ -107,8 +107,8 @@ has an independent strength control. The Ocean currents and Deep currents
 displays visualize each layer's velocity direction and strength.
 
 This remains a two-layer approximation. It does not resolve full 3D basin
-bathymetry, multiple thermocline layers, tides, sea ice, or eddies below the
-simulation grid.
+bathymetry, multiple thermocline layers, tides, a dynamic sea-ice layer, or
+eddies below the simulation grid.
 
 ## Temperature and precipitation
 
@@ -122,6 +122,16 @@ Zero Celsius is green, subzero temperatures transition through cyan, blue, and
 violet, and positive temperatures transition through yellow, orange, and red.
 Clicking the map reports the annual mean, both monthly-mean extrema, and the
 full monthly series.
+
+The Ice caps display marks ocean cells whose warmest modeled monthly
+sea-surface temperature remains below 0 °C. The Permafrost display applies the
+same year-round-freezing test to land surface temperature. Both diagnostics
+need all twelve monthly bins. Monthly SST is stored separately from surface-air
+temperature so the water test remains valid when sea ice changes the air above
+it. A fractional sea-ice surface proxy cools surface air over subfreezing water
+toward a latitude- and season-dependent radiative temperature. The model still
+does not resolve dynamic ice thickness, motion, albedo, insulation, or
+freshwater feedback.
 
 The Precipitation rate display maps the current season's annualized surface
 precipitation rate from `0` to `300+ cm/year`; it is not the completed annual
@@ -151,6 +161,12 @@ unrealistically cold subtropical winters. Land temperature also applies a
 nonlinear elevation lapse curve with a maximum `70 K` relief penalty. The
 exponent concentrates cooling in plateaus and mountain ranges such as the Andes
 and Himalayas while limiting the effect on low terrain.
+
+This local land-temperature calculation does not yet transport ocean heat into
+nearby land cells or reduce seasonal amplitude by distance from the sea.
+Maritime regions such as western France and New Zealand can therefore be
+classified too continentally; the Köppen-like Cfb branch exists, but these
+coasts often fail its above-freezing coldest-month threshold.
 
 The simulator batches GPU passes during its initial 600-pass warm-up, then
 switches to a lower-cost maintenance rate. Changing a planetary parameter

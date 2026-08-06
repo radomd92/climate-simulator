@@ -21,6 +21,8 @@ export const VIEW_NAMES = [
   "annual-mean-temperature",
   "coldest-month-temperature",
   "warmest-month-temperature",
+  "ice-caps",
+  "permafrost",
 ];
 export const PRESSURE_AREA_STRENGTH = 0.16;
 export const PRESSURE_AREA_RADIUS_DEGREES = 24;
