@@ -128,9 +128,12 @@ violet, and positive temperatures transition through yellow, orange, and red.
 Clicking the map reports the annual mean, both monthly-mean extrema, and the
 full monthly series.
 
-The Ice caps display marks ocean cells whose warmest modeled monthly
-sea-surface temperature remains below 0 °C. The Permafrost display applies the
-same year-round-freezing test to land surface temperature. Both diagnostics
+The Annual mean SST display averages the twelve modeled monthly
+sea-surface temperatures, masks the result to ocean, and uses the same
+−80 °C to 50 °C temperature scale as the surface-air maps. The Ice caps display
+marks ocean cells whose warmest modeled monthly sea-surface temperature remains
+below 0 °C. The Permafrost display applies the
+same year-round-freezing test to land surface temperature. All three displays
 need all twelve monthly bins. Monthly SST is stored separately from surface-air
 temperature so the water test remains valid when sea ice changes the air above
 it. A fractional sea-ice surface proxy cools surface air over subfreezing water

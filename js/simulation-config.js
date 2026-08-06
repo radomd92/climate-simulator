@@ -23,6 +23,7 @@ export const VIEW_NAMES = [
   "warmest-month-temperature",
   "ice-caps",
   "permafrost",
+  "annual-mean-sea-surface-temperature",
 ];
 export const PRESSURE_AREA_STRENGTH = 0.16;
 export const PRESSURE_AREA_RADIUS_DEGREES = 24;

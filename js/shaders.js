@@ -1732,6 +1732,16 @@ export const shaders = {
           coldestMonthlyMean,
           warmestMonthlyMean
         );
+        if (viewMode == 16) {
+          bool isOcean = texture(heightmap, textureCoordinate).r < waterLevel;
+          float normalizedTemperature = normalizeTemperature(annualMean);
+          outputColor = isOcean
+            ? (grayscale
+              ? vec4(vec3(normalizedTemperature), 1.0)
+              : vec4(getTemperatureColor(annualMean), 1.0))
+            : vec4(0.14, 0.12, 0.09, 1.0);
+          return;
+        }
         if (viewMode == 14) {
           bool isOcean = texture(heightmap, textureCoordinate).r < waterLevel;
           outputColor = isOcean

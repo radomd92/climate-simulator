@@ -341,6 +341,7 @@
             <label><input type="radio" name="view-mode" value="13"> Warmest monthly mean</label>
             <label><input type="radio" name="view-mode" value="14"> Ice caps</label>
             <label><input type="radio" name="view-mode" value="15"> Permafrost</label>
+            <label><input type="radio" name="view-mode" value="16"> Annual mean SST</label>
           </div>
           <div class="simulation-actions">
             <label class="simulation-progress" for="simulation-progress">
@@ -469,6 +470,15 @@
             Collecting temperature climatology · 0 of 12 months available.
           </p>
           <p class="legend-note">Land cells whose warmest modeled monthly surface temperature remains below 0 °C.</p>
+        </div>
+
+        <div class="legend" id="annual-mean-sst-legend" hidden>
+          <div class="gradient temperature-gradient"></div>
+          <div class="legend-scale"><span>−80 °C</span><span>−15 °C</span><span>50 °C</span></div>
+          <p class="legend-note" data-temperature-climatology-status aria-live="polite">
+            Collecting temperature climatology · 0 of 12 months available.
+          </p>
+          <p class="legend-note">Ocean-only mean of the twelve modeled monthly sea-surface temperatures.</p>
         </div>
 
         <div class="legend" id="precipitation-legend" hidden>

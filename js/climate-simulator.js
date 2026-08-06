@@ -87,6 +87,7 @@ export class ClimateSimulator {
       documentRoot.querySelector("#warmest-month-temperature-legend"),
       documentRoot.querySelector("#ice-cap-legend"),
       documentRoot.querySelector("#permafrost-legend"),
+      documentRoot.querySelector("#annual-mean-sst-legend"),
     ];
     this.temperatureClimatologyStatuses = Array.from(
       documentRoot.querySelectorAll("[data-temperature-climatology-status]"),
@@ -1586,7 +1587,7 @@ export class ClimateSimulator {
     render.setTexture("deepOceanState", 10, this.simulation.deepOceanState[1 - this.pingPongIndex]);
     const monthlyClimate = this.viewMode === 10
       ? this.simulation.monthlyPrecipitation
-      : (this.viewMode === 14
+      : (this.viewMode === 14 || this.viewMode === 16
         ? this.simulation.monthlySeaSurfaceTemperature
         : this.simulation.monthlyTemperature);
     render.setTexture("monthlyClimate0", 11, monthlyClimate[0]);
