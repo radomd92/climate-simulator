@@ -36,8 +36,12 @@ export const shaders = {
       return (2.0 * uv.y - 1.0) * 90.0;
     }
 
+    vec2 wrapCoordinate(vec2 uv) {
+      return vec2(fract(uv.x + 1.0), clamp(uv.y, 0.0, 1.0));
+    }
+
     float isOcean(vec2 uv) {
-      return texture(heightmap, uv).r < waterLevel ? 1.0 : 0.0;
+      return texture(heightmap, wrapCoordinate(uv)).r < waterLevel ? 1.0 : 0.0;
     }
 
     float getEquilibriumTemperature(vec2 uv) {
@@ -50,12 +54,15 @@ export const shaders = {
     }
 
     float readTemperature(vec2 uv) {
-      float temperature = texture(previousTemperature, uv).r;
-      return temperature > 100.0 ? temperature : getEquilibriumTemperature(uv);
+      vec2 coordinate = wrapCoordinate(uv);
+      float temperature = texture(previousTemperature, coordinate).r;
+      return temperature > 100.0
+        ? temperature
+        : getEquilibriumTemperature(coordinate);
     }
 
     float readSalinity(vec2 uv) {
-      float salinity = texture(previousSalinity, uv).r;
+      float salinity = texture(previousSalinity, wrapCoordinate(uv)).r;
       return salinity > 1.0 ? salinity : 35.0;
     }
 
@@ -67,6 +74,22 @@ export const shaders = {
 
     float scaledFraction(float fraction) {
       return 1.0 - pow(1.0 - clamp(fraction, 0.0, 0.999999), simulationTimeStep);
+    }
+
+    vec2 getCoastGradient(vec2 uv, vec2 texel) {
+      float oceanLeft = isOcean(uv - vec2(texel.x, 0.0));
+      float oceanRight = isOcean(uv + vec2(texel.x, 0.0));
+      float oceanDown = isOcean(uv - vec2(0.0, texel.y));
+      float oceanUp = isOcean(uv + vec2(0.0, texel.y));
+      float oceanLeftWide = isOcean(uv - vec2(3.0 * texel.x, 0.0));
+      float oceanRightWide = isOcean(uv + vec2(3.0 * texel.x, 0.0));
+      float oceanDownWide = isOcean(uv - vec2(0.0, 3.0 * texel.y));
+      float oceanUpWide = isOcean(uv + vec2(0.0, 3.0 * texel.y));
+      return vec2(oceanRight - oceanLeft, oceanUp - oceanDown)
+        + 0.5 * vec2(
+          oceanRightWide - oceanLeftWide,
+          oceanUpWide - oceanDownWide
+        );
     }
 
     void main() {
@@ -86,10 +109,12 @@ export const shaders = {
       vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0)
         * 0.00025
         * simulationTimeStep;
-      vec2 backtracedCoordinate = textureCoordinate - oldCurrent * transportScale;
+      vec2 backtracedCoordinate = wrapCoordinate(
+        textureCoordinate - oldCurrent * transportScale
+      );
       if (isOcean(backtracedCoordinate) < 0.5) backtracedCoordinate = textureCoordinate;
 
-      vec2 current = texture(previousCurrent, backtracedCoordinate).rg;
+      vec2 current = texture(previousCurrent, wrapCoordinate(backtracedCoordinate)).rg;
       float temperature = readTemperature(backtracedCoordinate);
       float salinity = readSalinity(backtracedCoordinate);
       vec4 deepState = texture(previousDeepState, textureCoordinate);
@@ -147,16 +172,7 @@ export const shaders = {
       );
       current -= simulationTimeStep * oceanCirculation * 0.012 * densityGradient;
 
-      float oceanLeft = isOcean(textureCoordinate - vec2(texel.x, 0.0));
-      float oceanRight = isOcean(textureCoordinate + vec2(texel.x, 0.0));
-      float oceanDown = isOcean(textureCoordinate - vec2(0.0, texel.y));
-      float oceanUp = isOcean(textureCoordinate + vec2(0.0, texel.y));
-      float oceanLeftWide = isOcean(textureCoordinate - vec2(3.0 * texel.x, 0.0));
-      float oceanRightWide = isOcean(textureCoordinate + vec2(3.0 * texel.x, 0.0));
-      float oceanDownWide = isOcean(textureCoordinate - vec2(0.0, 3.0 * texel.y));
-      float oceanUpWide = isOcean(textureCoordinate + vec2(0.0, 3.0 * texel.y));
-      vec2 coastGradient = vec2(oceanRight - oceanLeft, oceanUp - oceanDown)
-        + 0.5 * vec2(oceanRightWide - oceanLeftWide, oceanUpWide - oceanDownWide);
+      vec2 coastGradient = getCoastGradient(textureCoordinate, texel);
       float coastStrength = clamp(length(coastGradient), 0.0, 1.0);
       vec2 coastNormal = coastStrength > 0.0 ? normalize(coastGradient) : vec2(0.0);
       if (coastStrength > 0.0) {
@@ -168,36 +184,61 @@ export const shaders = {
       // ocean boundaries (California/Canary/Humboldt/Benguela).
       float boundaryLatitude = smoothstep(8.0, 20.0, abs(latitude))
         * (1.0 - smoothstep(50.0, 62.0, abs(latitude)));
-      float westernBoundary = max(coastNormal.x, 0.0) * coastStrength;
-      float easternBoundary = max(-coastNormal.x, 0.0) * coastStrength;
+      float intensifiedBoundary = max(
+        coastNormal.x * rotationDirection,
+        0.0
+      ) * coastStrength;
+      float broadBoundary = max(
+        -coastNormal.x * rotationDirection,
+        0.0
+      ) * coastStrength;
       vec2 polewardDirection = vec2(0.0, hemisphere * rotationDirection);
       vec2 boundaryTarget = polewardDirection * (
-        2.00 * westernBoundary - 0.70 * easternBoundary
+        2.00 * intensifiedBoundary - 0.70 * broadBoundary
       );
       float boundaryRelaxation = boundaryLatitude * (
-        0.060 * westernBoundary + 0.030 * easternBoundary
+        0.060 * intensifiedBoundary + 0.030 * broadBoundary
       );
       current += scaledFraction(oceanCirculation * boundaryRelaxation)
         * (boundaryTarget - current);
 
-      vec2 warmSourceCoordinate = textureCoordinate - vec2(0.0, 0.08 * hemisphere);
-      float warmSourceTemperature = max(
-        readTemperature(warmSourceCoordinate),
-        max(
-          getEquilibriumTemperature(warmSourceCoordinate),
-          equilibriumTemperature + 4.0 * boundaryLatitude
-        )
-      );
-      float warmBoundaryFraction = scaledFraction(clamp(
-        0.25 * oceanCirculation * westernBoundary * boundaryLatitude,
-        0.0,
-        0.25
-      ));
-      temperature = mix(
-        temperature,
-        max(temperature, warmSourceTemperature),
-        warmBoundaryFraction
-      );
+      // At mid-latitudes the intensified boundary current separates from the
+      // coast and forms a narrow basinward extension. Trace toward the
+      // upstream boundary through uninterrupted ocean so islands and isthmuses
+      // block the jet instead of letting it teleport across land.
+      vec2 basinwardDirection = vec2(rotationDirection, 0.0);
+      float separatedBoundarySignal = 0.0;
+      float openOceanPath = 1.0;
+      for (int sampleIndex = 1; sampleIndex <= 6; sampleIndex += 1) {
+        float distanceFraction = float(sampleIndex) / 6.0;
+        vec2 sourceOffset = basinwardDirection
+          * vec2(0.015 * float(sampleIndex), 0.0);
+        vec2 sourceCoordinate = wrapCoordinate(
+          textureCoordinate - sourceOffset
+        );
+        vec2 pathMidpoint = wrapCoordinate(
+          textureCoordinate
+          - sourceOffset
+          + basinwardDirection * vec2(0.0075, 0.0)
+        );
+        openOceanPath *= isOcean(pathMidpoint) * isOcean(sourceCoordinate);
+        float landBehindSource = 1.0 - isOcean(
+          sourceCoordinate - basinwardDirection * vec2(0.015, 0.0)
+        );
+        separatedBoundarySignal = max(
+          separatedBoundarySignal,
+          openOceanPath
+          * landBehindSource
+          * exp(-1.4 * distanceFraction)
+        );
+      }
+      float separationLatitude = smoothstep(28.0, 38.0, abs(latitude))
+        * (1.0 - smoothstep(50.0, 60.0, abs(latitude)));
+      float separatedJet = separationLatitude * separatedBoundarySignal;
+      vec2 separatedTarget = 1.55 * basinwardDirection
+        + 0.25 * polewardDirection;
+      current += scaledFraction(0.045 * oceanCirculation * separatedJet)
+        * (separatedTarget - current);
 
       vec2 equatorwardDirection = -polewardDirection;
       float favorableUpwellingWind = max(
@@ -206,7 +247,7 @@ export const shaders = {
       );
       float coastalUpwelling = oceanCirculation
         * abs(rotationDirection)
-        * easternBoundary
+        * broadBoundary
         * boundaryLatitude
         * favorableUpwellingWind;
       temperature = mix(
@@ -222,11 +263,52 @@ export const shaders = {
 
       float currentSpeed = length(current);
       if (currentSpeed > 3.0) current *= 3.0 / currentSpeed;
+      currentSpeed = min(currentSpeed, 3.0);
 
+      // Resolve heat transport farther than one velocity backtrace without
+      // increasing momentum or salinity speed. Fast coherent currents sample
+      // several progressively upstream ocean points; the continuous path mask
+      // prevents heat leaking across intervening land.
+      vec2 currentInTextureSpace = current * vec2(1.0 / cosineLatitude, 2.0);
+      float textureSpaceSpeed = length(currentInTextureSpace);
+      vec2 upstreamDirection = currentInTextureSpace
+        / max(textureSpaceSpeed, 0.0001);
+      float heatTransportSupport = smoothstep(0.30, 1.35, currentSpeed)
+        * clamp(oceanCirculation, 0.0, 1.5);
+      float heatTraceReach = mix(
+        0.004,
+        0.025,
+        smoothstep(0.35, 2.25, currentSpeed)
+      );
+      float upstreamTemperature = 0.0;
+      float upstreamWeight = 0.0;
+      float openHeatPath = 1.0;
+      for (int sampleIndex = 1; sampleIndex <= 4; sampleIndex += 1) {
+        float distanceFraction = float(sampleIndex) / 4.0;
+        vec2 sampleCoordinate = wrapCoordinate(
+          textureCoordinate
+          - upstreamDirection * heatTraceReach * distanceFraction
+        );
+        openHeatPath *= isOcean(sampleCoordinate);
+        float sampleWeight = openHeatPath * exp(-1.25 * distanceFraction);
+        upstreamTemperature += sampleWeight * readTemperature(sampleCoordinate);
+        upstreamWeight += sampleWeight;
+      }
+      if (upstreamWeight > 0.0) {
+        temperature = mix(
+          temperature,
+          upstreamTemperature / upstreamWeight,
+          scaledFraction(0.045 * heatTransportSupport)
+        );
+      }
+
+      float energeticCurrentMemory = smoothstep(0.45, 1.50, currentSpeed)
+        * (1.0 - smoothstep(62.0, 76.0, abs(latitude)));
+      float radiativeRestoring = mix(0.004, 0.0022, energeticCurrentMemory);
       temperature = mix(
         temperature,
         equilibriumTemperature,
-        scaledFraction(0.004)
+        scaledFraction(radiativeRestoring)
       );
       float precipitation = texture(precipitationMap, textureCoordinate).g;
       float evaporation = clamp(

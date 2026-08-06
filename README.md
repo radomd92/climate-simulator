@@ -77,7 +77,12 @@ sea-surface temperature.
 Surface wind stress includes Ekman deflection. Latitude-varying Coriolis and
 coast geometry intensify poleward western-boundary currents such as the Gulf
 Stream and Kuroshio, while eastern-boundary currents such as California and
-Humboldt flow equatorward. Favorable alongshore winds mix deep cold water into
+Humboldt flow equatorward. At mid-latitudes, intensified currents separate into
+basinward jets when an uninterrupted ocean path connects them to their upstream
+boundary. Fast currents mix heat from several progressively upstream ocean
+samples and retain transported temperature anomalies longer than still water,
+allowing warm plumes to cross a larger part of a basin without passing through
+islands or isthmuses. Favorable alongshore winds mix deep cold water into
 eastern boundaries. Cold SST creates a marine-inversion tracer that is mixed
 and transported by the atmospheric wind field. The tracer decays over warm
 land and suppresses convective precipitation nonlinearly, so dry coastal air
