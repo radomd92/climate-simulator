@@ -238,7 +238,7 @@
           </div>
 
           <div class="control-group">
-            <label for="insolation">Solar irradiance</label>
+            <label for="insolation">Reference solar irradiance</label>
             <div class="input-with-select">
               <input id="insolation" type="number" min="0" step="any" value="1361">
               <select id="insolation-unit" aria-label="Solar irradiance unit">
@@ -246,6 +246,23 @@
                 <option value="1361">Earth suns</option>
               </select>
             </div>
+            <p class="hint">Flux at the orbit's semi-major-axis distance.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="orbital-eccentricity">Orbital eccentricity</label>
+            <div class="input-with-unit">
+              <input
+                id="orbital-eccentricity"
+                type="number"
+                min="0"
+                max="0.2"
+                step="0.0001"
+                value="0.0167"
+              >
+              <span>Earth: 0.0167</span>
+            </div>
+            <p class="hint">Automatic seasons vary irradiance with orbital distance; perihelion is aligned to early January.</p>
           </div>
 
           <div class="control-group">
@@ -568,7 +585,7 @@
         <li>The ocean uses two coupled layers rather than full 3D bathymetry and does not include tides or a dynamic sea-ice layer.</li>
         <li>Surface temperature uses simplified radiative, elevation, sea-ice, and prevailing-wind ocean-transport effects; the planet has a fixed spherical radius.</li>
         <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>
-        <li>Seasonal forcing is represented by solar declination rather than a full orbital model.</li>
+        <li>Seasonal forcing includes declination and inverse-square eccentricity, but uses fixed Earth-like axial tilt and perihelion timing rather than a full orbital model.</li>
         <li>Point climatology uses equal-length model months; climate zones remain an approximation of observational normals.</li>
         <li>The empirical parameters are tuned to resemble Earth and are not resolution-independent.</li>
       </ul>

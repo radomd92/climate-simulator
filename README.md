@@ -45,6 +45,11 @@ replacing the current areas, so malformed files leave the active map unchanged.
 Solar declination controls seasonal heating. Positive values heat northern
 continents more strongly and negative values heat southern continents,
 producing seasonal monsoon reversal through land-ocean pressure differences.
+The reference solar-irradiance control specifies flux at the orbit's
+semi-major-axis distance. During automatic seasons, orbital eccentricity varies
+the effective flux by the inverse square of the Keplerian star-planet distance.
+It defaults to Earth's `0.0167`, with perihelion fixed to Earth's early-January
+alignment; manual seasons use the reference irradiance directly.
 The tropical pressure minimum, trade-wind convergence, and evaporation maximum
 follow half of the solar-declination displacement. The precipitation model uses
 a narrower migrating ITCZ while subtropical subsidence and subpolar ascent move
@@ -193,7 +198,10 @@ current atmospheric state.
 
 ## Seasons and climate zones
 
-Automatic seasons advance solar declination through a sinusoidal model year.
+Automatic seasons advance solar declination through a sinusoidal model year and
+vary irradiance with orbital eccentricity. The seasonal status reports the live
+effective irradiance. This is a partial orbital model: axial tilt remains fixed
+at 23.5 degrees and perihelion timing remains Earth-like.
 The detail selector offers simulated years of roughly 3, 6, 12, 20, 40, 60,
 or 120 seconds after warm-up. Each mode covers the same amount of modeled
 atmosphere and ocean time: short years use larger transport and relaxation

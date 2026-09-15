@@ -27,6 +27,10 @@ import {
 } from "./pressure-map.js";
 import { PointClimatePanel } from "./point-climate-panel.js";
 
+const EARTH_ORBITAL_ECCENTRICITY = 0.0167;
+// The automatic year starts at the March equinox; Earth reaches perihelion 289 days later.
+const EARTH_PERIHELION_PHASE = 289 / 365.2422;
+
 export class ClimateSimulator {
   constructor(documentRoot) {
     this.document = documentRoot;
@@ -61,6 +65,7 @@ export class ClimateSimulator {
       deepOceanCirculation: documentRoot.querySelector("#deep-ocean-circulation"),
       insolation: documentRoot.querySelector("#insolation"),
       insolationUnit: documentRoot.querySelector("#insolation-unit"),
+      orbitalEccentricity: documentRoot.querySelector("#orbital-eccentricity"),
       solarDeclination: documentRoot.querySelector("#solar-declination"),
       autoSeasons: documentRoot.querySelector("#auto-seasons"),
       seasonSpeed: documentRoot.querySelector("#season-speed"),
@@ -188,6 +193,7 @@ export class ClimateSimulator {
       this.controls.oceanCirculation,
       this.controls.deepOceanCirculation,
       this.controls.insolation,
+      this.controls.orbitalEccentricity,
       this.controls.solarDeclination,
     ].forEach((input) => input.addEventListener("input", () => this.markSimulationUnsettled()));
 
@@ -1050,6 +1056,7 @@ export class ClimateSimulator {
 
   updateSeasonControls() {
     const automatic = this.controls.autoSeasons.checked;
+    this.controls.orbitalEccentricity.disabled = !automatic;
     this.controls.solarDeclination.disabled = automatic;
     this.controls.seasonSpeed.disabled = !automatic;
 
@@ -1070,7 +1077,11 @@ export class ClimateSimulator {
     else if (phase < 0.75) season = "Northern autumn";
     else if (phase === 0.75) season = "December solstice";
     else season = "Northern winter";
-    this.seasonPosition.textContent = `${season} · year ${this.completedClimateYears + 1}`;
+    this.seasonPosition.textContent = [
+      season,
+      `year ${this.completedClimateYears + 1}`,
+      `${this.getSolarIrradiance().toFixed(0)} W/m²`,
+    ].join(" · ");
   }
 
   updateAnnualPrecipitationStatus() {
@@ -1699,7 +1710,32 @@ export class ClimateSimulator {
   }
 
   getSolarIrradiance() {
-    return Math.max(0, this.readNumber(this.controls.insolation, 1361)) * this.insolationUnitFactor;
+    const referenceIrradiance = Math.max(
+      0,
+      this.readNumber(this.controls.insolation, 1361),
+    ) * this.insolationUnitFactor;
+    if (!this.controls.autoSeasons.checked) return referenceIrradiance;
+
+    const eccentricity = this.getOrbitalEccentricity();
+    const phase = this.seasonPasses / this.getSeasonPassesPerYear();
+    const meanAnomaly = 2 * Math.PI * (phase - EARTH_PERIHELION_PHASE);
+    let eccentricAnomaly = meanAnomaly;
+    for (let iteration = 0; iteration < 6; iteration += 1) {
+      eccentricAnomaly -= (
+        eccentricAnomaly
+        - eccentricity * Math.sin(eccentricAnomaly)
+        - meanAnomaly
+      ) / (1 - eccentricity * Math.cos(eccentricAnomaly));
+    }
+    const relativeDistance = 1 - eccentricity * Math.cos(eccentricAnomaly);
+    return referenceIrradiance / (relativeDistance * relativeDistance);
+  }
+
+  getOrbitalEccentricity() {
+    return Math.min(0.2, Math.max(
+      0,
+      this.readNumber(this.controls.orbitalEccentricity, EARTH_ORBITAL_ECCENTRICITY),
+    ));
   }
 
   getSolarDeclination() {
@@ -1747,6 +1783,7 @@ export class ClimateSimulator {
     this.controls.oceanCirculation.value = "1";
     this.controls.deepOceanCirculation.value = "1";
     this.setPhysicalInput(this.controls.insolation, 1361, this.insolationUnitFactor);
+    this.controls.orbitalEccentricity.value = String(EARTH_ORBITAL_ECCENTRICITY);
     this.controls.solarDeclination.value = "0";
     this.controls.heightmap.value = "";
     this.clearSimulation();
@@ -1792,4 +1829,3 @@ export class ClimateSimulator {
     this.errorOutput.textContent = error instanceof Error ? error.message : String(error);
   }
 }
-
