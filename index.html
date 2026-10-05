@@ -106,6 +106,32 @@
           aria-labelledby="simulation-controls-tab"
           hidden
         >
+          <div class="control-group">
+            <label for="simulation-quality">Simulation resolution</label>
+            <select id="simulation-quality" class="full-width-select">
+              <option value="1">Maximum (1 x 1 pixel blocks)</option>
+              <option value="2">High (2 x 2 pixel blocks)</option>
+              <option value="4" selected>Medium (4 x 4 pixel blocks)</option>
+              <option value="8">Low (8 x 8 pixel blocks)</option>
+              <option value="16">Very low (16 x 16 pixel blocks)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <label class="compact-label" for="simulation-block-size">Block size</label>
+            <div class="input-with-unit">
+              <input
+                id="simulation-block-size"
+                type="number"
+                min="1"
+                max="64"
+                step="1"
+                value="4"
+              >
+              <span>output pixels</span>
+            </div>
+            <p id="simulation-resolution-status" class="hint" aria-live="polite"></p>
+            <p class="hint">Larger blocks reduce GPU memory and detail. Changes restart climate settling.</p>
+          </div>
+
           <fieldset class="control-group pressure-area-controls">
             <legend>Pressure areas</legend>
             <div class="pressure-area-actions">
@@ -587,7 +613,7 @@
         <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>
         <li>Seasonal forcing links Keplerian declination and inverse-square eccentricity, but uses fixed Earth-like axial tilt and perihelion timing rather than a full orbital model.</li>
         <li>Point climatology uses equal-length model months; climate zones remain an approximation of observational normals.</li>
-        <li>The empirical parameters are tuned to resemble Earth and are not resolution-independent.</li>
+        <li>The empirical parameters are tuned to resemble Earth and are not resolution-independent; coarse simulation blocks can omit narrow terrain and coastlines.</li>
       </ul>
     </section>
   </main>

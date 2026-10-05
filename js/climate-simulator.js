@@ -3,8 +3,11 @@ import {
   ASSETS,
   AUTO_SEASON_BATCH_SIZE,
   DEFAULT_HEIGHT,
+  DEFAULT_SIMULATION_BLOCK_SIZE,
   DEFAULT_WIDTH,
+  MAX_SIMULATION_BLOCK_SIZE,
   MAX_PRESSURE_AREA_INTENSITY,
+  MIN_SIMULATION_BLOCK_SIZE,
   MIN_PRESSURE_AREA_INTENSITY,
   MIN_SEASONAL_SIMULATION_TIME_STEP,
   PRESSURE_FIELD_HEIGHT,
@@ -58,6 +61,8 @@ export class ClimateSimulator {
     };
     this.controls = {
       heightmap: documentRoot.querySelector("#heightmap"),
+      simulationQuality: documentRoot.querySelector("#simulation-quality"),
+      simulationBlockSize: documentRoot.querySelector("#simulation-block-size"),
       waterLevel: documentRoot.querySelector("#water-level"),
       rotationSpeed: documentRoot.querySelector("#rotation-speed"),
       rotationUnit: documentRoot.querySelector("#rotation-unit"),
@@ -99,6 +104,9 @@ export class ClimateSimulator {
       documentRoot.querySelectorAll("[data-temperature-climatology-status]"),
     );
     this.seasonPosition = documentRoot.querySelector("#season-position");
+    this.simulationResolutionStatus = documentRoot.querySelector(
+      "#simulation-resolution-status",
+    );
     this.climateZoneStatus = documentRoot.querySelector("#climate-zone-status");
     this.annualPrecipitationStatus = documentRoot.querySelector(
       "#annual-precipitation-status",
@@ -132,6 +140,7 @@ export class ClimateSimulator {
     this.insolationUnitFactor = Number(this.controls.insolationUnit.value);
 
     this.configureCanvasSize();
+    this.updateSimulationResolution(false);
     this.bindControls();
     this.renderPressureAreas();
     this.updateSeasonControls();
@@ -146,6 +155,46 @@ export class ClimateSimulator {
     this.canvas.width = Number.isInteger(width) && width > 0 ? width : DEFAULT_WIDTH;
     this.canvas.height = Number.isInteger(height) && height > 0 ? height : DEFAULT_HEIGHT;
     this.canvas.style.aspectRatio = `${this.canvas.width} / ${this.canvas.height}`;
+  }
+
+  updateSimulationResolution(rebuild = true) {
+    const blockSize = Math.min(
+      MAX_SIMULATION_BLOCK_SIZE,
+      Math.max(
+        MIN_SIMULATION_BLOCK_SIZE,
+        Math.round(this.readNumber(
+          this.controls.simulationBlockSize,
+          DEFAULT_SIMULATION_BLOCK_SIZE,
+        )),
+      ),
+    );
+    const width = Math.max(1, Math.ceil(this.canvas.width / blockSize));
+    const height = Math.max(1, Math.ceil(this.canvas.height / blockSize));
+    const previousBlockSize = this.simulationBlockSize;
+    const previousWidth = this.simulationWidth;
+    const previousHeight = this.simulationHeight;
+
+    this.controls.simulationBlockSize.value = String(blockSize);
+    this.controls.simulationQuality.value = [1, 2, 4, 8, 16].includes(blockSize)
+      ? String(blockSize)
+      : "custom";
+    this.simulationBlockSize = blockSize;
+    this.simulationWidth = width;
+    this.simulationHeight = height;
+    this.simulationResolutionStatus.textContent =
+      `${blockSize} x ${blockSize} blocks · ${width} x ${height} simulation grid`;
+
+    if (
+      rebuild
+      && this.ready
+      && (width !== previousWidth || height !== previousHeight)
+    ) {
+      this.rebuildSimulationTargets(
+        previousWidth,
+        previousHeight,
+        previousBlockSize,
+      );
+    }
   }
 
   bindControls() {
@@ -186,6 +235,18 @@ export class ClimateSimulator {
     });
 
     this.controls.heightmap.addEventListener("change", () => this.loadUploadedHeightmap());
+    this.controls.simulationQuality.addEventListener("change", () => {
+      const preset = Number.parseInt(this.controls.simulationQuality.value, 10);
+      if (!Number.isInteger(preset)) {
+        this.controls.simulationBlockSize.focus();
+        return;
+      }
+      this.controls.simulationBlockSize.value = String(preset);
+      this.updateSimulationResolution();
+    });
+    this.controls.simulationBlockSize.addEventListener("change", () => {
+      this.updateSimulationResolution();
+    });
 
     [
       this.controls.waterLevel,
@@ -738,24 +799,57 @@ export class ClimateSimulator {
   }
 
   createSimulationTargets() {
-    const gl = this.gl;
-    const { width, height } = this.canvas;
-    const linearWrapping = { linear: true, repeatX: true };
+    this.simulation = this.buildSimulationTargets(
+      this.simulationWidth,
+      this.simulationHeight,
+    );
+    this.pressureForcingValues ??= new Float32Array(
+      PRESSURE_FIELD_WIDTH * PRESSURE_FIELD_HEIGHT,
+    );
+    this.updatePressureForcingTexture();
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+  }
 
+  buildSimulationTargets(width, height) {
+    const gl = this.gl;
+    const linearWrapping = { linear: true, repeatX: true };
+    const allocatedTextures = [];
+    const allocatedFramebuffers = [];
+    const allocate = (textureWidth, textureHeight, internalFormat, format, type) => {
+      const texture = Texture2D.allocate(
+        gl,
+        textureWidth,
+        textureHeight,
+        internalFormat,
+        format,
+        type,
+      );
+      allocatedTextures.push(texture);
+      return texture;
+    };
+    const allocateSimulation = (internalFormat, format, type) => (
+      allocate(width, height, internalFormat, format, type)
+    );
+    const createFramebuffer = () => {
+      const framebuffer = new Framebuffer(gl);
+      allocatedFramebuffers.push(framebuffer);
+      return framebuffer;
+    };
+
+    try {
     const waterVapor = [
-      Texture2D.allocate(gl, width, height, gl.RGBA32F, gl.RGBA, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RGBA32F, gl.RGBA, gl.FLOAT),
+      allocateSimulation(gl.RGBA32F, gl.RGBA, gl.FLOAT),
+      allocateSimulation(gl.RGBA32F, gl.RGBA, gl.FLOAT),
     ];
     const wind = [
-      Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
+      allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
+      allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
     ];
     const pressure = [
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
     ];
-    const pressureForcing = Texture2D.allocate(
-      gl,
+    const pressureForcing = allocate(
       PRESSURE_FIELD_WIDTH,
       PRESSURE_FIELD_HEIGHT,
       gl.R32F,
@@ -763,54 +857,51 @@ export class ClimateSimulator {
       gl.FLOAT,
     );
     const oceanCurrent = [
-      Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RG32F, gl.RG, gl.FLOAT),
+      allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
+      allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
     ];
     const seaSurfaceTemperature = [
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
     ];
     const salinity = [
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
     ];
     const deepOceanState = [
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
     ];
     const overturning = [
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
-      Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
     ];
-    const temperature = Texture2D.allocate(gl, width, height, gl.R32F, gl.RED, gl.FLOAT);
-    const biomes = Texture2D.allocate(gl, width, height, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
+    const temperature = allocateSimulation(gl.R32F, gl.RED, gl.FLOAT);
+    const biomes = allocateSimulation(gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
     const climateStatsA = [
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
     ];
     const climateStatsB = [
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
     ];
     // Two textures accumulate the active year while the third retains the
     // completed annual vector mean used by land-temperature transport.
     const windClimatology = Array.from({ length: 3 }, () => (
-      Texture2D.allocate(gl, width, height, gl.RG16F, gl.RG, gl.HALF_FLOAT)
+      allocateSimulation(gl.RG16F, gl.RG, gl.HALF_FLOAT)
     ));
     // Each RGBA texture packs four consecutive months, January through December.
     const monthlyTemperature = Array.from({ length: 3 }, () => (
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
     ));
     const monthlySeaSurfaceTemperature = Array.from({ length: 3 }, () => (
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
     ));
     const monthlyPrecipitation = Array.from({ length: 3 }, () => (
-      Texture2D.allocate(gl, width, height, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
+      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
     ));
-    const climateZones = Texture2D.allocate(
-      gl,
-      width,
-      height,
+    const climateZones = allocateSimulation(
       gl.RGBA8,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
@@ -842,10 +933,10 @@ export class ClimateSimulator {
       ...monthlyPrecipitation,
       climateZones,
     ].forEach((texture) => {
-      texture.setSampling({ repeatX: true });
+      texture.setSampling(linearWrapping);
     });
 
-    const advection = [new Framebuffer(gl), new Framebuffer(gl)];
+    const advection = [createFramebuffer(), createFramebuffer()];
     advection.forEach((framebuffer, index) => {
       framebuffer.attachColor(waterVapor[index], 0);
       framebuffer.attachColor(wind[index], 1);
@@ -854,11 +945,11 @@ export class ClimateSimulator {
       framebuffer.validate(`Advection ${index}`);
     });
 
-    const biome = new Framebuffer(gl);
+    const biome = createFramebuffer();
     biome.attachColor(biomes, 0);
     biome.validate("Biome");
 
-    const ocean = [new Framebuffer(gl), new Framebuffer(gl)];
+    const ocean = [createFramebuffer(), createFramebuffer()];
     ocean.forEach((framebuffer, index) => {
       framebuffer.attachColor(oceanCurrent[index], 0);
       framebuffer.attachColor(seaSurfaceTemperature[index], 1);
@@ -866,14 +957,14 @@ export class ClimateSimulator {
       framebuffer.validate(`Ocean circulation ${index}`);
     });
 
-    const deepOcean = [new Framebuffer(gl), new Framebuffer(gl)];
+    const deepOcean = [createFramebuffer(), createFramebuffer()];
     deepOcean.forEach((framebuffer, index) => {
       framebuffer.attachColor(deepOceanState[index], 0);
       framebuffer.attachColor(overturning[index], 1);
       framebuffer.validate(`Deep ocean circulation ${index}`);
     });
 
-    const climateStats = [new Framebuffer(gl), new Framebuffer(gl)];
+    const climateStats = [createFramebuffer(), createFramebuffer()];
     climateStats.forEach((framebuffer, index) => {
       framebuffer.attachColor(climateStatsA[index], 0);
       framebuffer.attachColor(climateStatsB[index], 1);
@@ -881,17 +972,19 @@ export class ClimateSimulator {
       framebuffer.validate(`Climate statistics ${index}`);
     });
 
-    const monthlyClimate = new Framebuffer(gl);
+    const monthlyClimate = createFramebuffer();
     monthlyClimate.attachColor(monthlyTemperature[0], 0);
     monthlyClimate.attachColor(monthlyPrecipitation[0], 1);
     monthlyClimate.attachColor(monthlySeaSurfaceTemperature[0], 2);
     monthlyClimate.validate("Monthly climate");
 
-    const climateZone = new Framebuffer(gl);
+    const climateZone = createFramebuffer();
     climateZone.attachColor(climateZones, 0);
     climateZone.validate("Climate zone");
 
-    this.simulation = {
+    return {
+      width,
+      height,
       waterVapor,
       wind,
       pressure,
@@ -917,12 +1010,71 @@ export class ClimateSimulator {
       climateStatsFramebuffers: climateStats,
       monthlyClimateFramebuffer: monthlyClimate,
       climateZoneFramebuffer: climateZone,
+      allocatedTextures,
+      allocatedFramebuffers,
     };
-    this.pressureForcingValues = new Float32Array(
-      PRESSURE_FIELD_WIDTH * PRESSURE_FIELD_HEIGHT,
+    } catch (error) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      allocatedFramebuffers.reverse().forEach((framebuffer) => framebuffer.destroy());
+      allocatedTextures.reverse().forEach((texture) => texture.destroy());
+      throw error;
+    }
+  }
+
+  destroySimulationTargets(simulation) {
+    if (!simulation) return;
+    simulation.allocatedFramebuffers.forEach((framebuffer) => framebuffer.destroy());
+    simulation.allocatedTextures.forEach((texture) => texture.destroy());
+  }
+
+  detachPointReadTexture() {
+    if (!this.pointReadFramebuffer) return;
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.pointReadFramebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      null,
+      0,
     );
-    this.updatePressureForcingTexture();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  rebuildSimulationTargets(previousWidth, previousHeight, previousBlockSize) {
+    const previousSimulation = this.simulation;
+    let nextSimulation = null;
+    try {
+      nextSimulation = this.buildSimulationTargets(
+        this.simulationWidth,
+        this.simulationHeight,
+      );
+      this.detachPointReadTexture();
+      this.simulation = nextSimulation;
+      this.updateSelectedPointPixel();
+      this.updatePressureForcingTexture();
+      this.clearSimulation();
+      this.step();
+      this.destroySimulationTargets(previousSimulation);
+    } catch (error) {
+      if (nextSimulation) {
+        this.detachPointReadTexture();
+        this.simulation = previousSimulation;
+        this.destroySimulationTargets(nextSimulation);
+      }
+      this.simulationWidth = previousWidth;
+      this.simulationHeight = previousHeight;
+      this.simulationBlockSize = previousBlockSize;
+      this.controls.simulationBlockSize.value = String(previousBlockSize);
+      this.controls.simulationQuality.value = [1, 2, 4, 8, 16].includes(
+        previousBlockSize,
+      ) ? String(previousBlockSize) : "custom";
+      this.simulationResolutionStatus.textContent =
+        `${previousBlockSize} x ${previousBlockSize} blocks · `
+        + `${previousWidth} x ${previousHeight} simulation grid`;
+      this.updateSelectedPointPixel();
+      this.reportError(error);
+    }
   }
 
   clearSimulation() {
@@ -1205,6 +1357,7 @@ export class ClimateSimulator {
   }
 
   updateClimateStatistics() {
+    this.gl.viewport(0, 0, this.simulationWidth, this.simulationHeight);
     const sourceIndex = this.climateStatsIndex;
     const targetIndex = 1 - sourceIndex;
     const windSourceIndex = this.windClimatologySourceIndex;
@@ -1318,16 +1471,13 @@ export class ClimateSimulator {
   selectMapPoint(horizontalPosition, verticalPosition) {
     horizontalPosition = Math.min(1, Math.max(0, horizontalPosition));
     verticalPosition = Math.min(1, Math.max(0, verticalPosition));
-    const width = this.canvas.width;
-    const height = this.canvas.height;
     this.selectedPoint = {
-      x: Math.min(width - 1, Math.floor(horizontalPosition * width)),
-      y: Math.min(height - 1, Math.floor((1 - verticalPosition) * height)),
       longitude: horizontalPosition * 360 - 180,
       latitude: 90 - verticalPosition * 180,
       horizontalPosition,
       verticalPosition,
     };
+    this.updateSelectedPointPixel();
 
     this.pointClimate.marker.style.left = `${horizontalPosition * 100}%`;
     this.pointClimate.marker.style.top = `${verticalPosition * 100}%`;
@@ -1336,6 +1486,19 @@ export class ClimateSimulator {
     this.pointClimate.empty.hidden = true;
     this.pointClimate.data.hidden = false;
     this.updateSelectedPointClimate(true);
+  }
+
+  updateSelectedPointPixel() {
+    if (!this.selectedPoint) return;
+    const { horizontalPosition, verticalPosition } = this.selectedPoint;
+    this.selectedPoint.x = Math.min(
+      this.simulationWidth - 1,
+      Math.floor(horizontalPosition * this.simulationWidth),
+    );
+    this.selectedPoint.y = Math.min(
+      this.simulationHeight - 1,
+      Math.floor((1 - verticalPosition) * this.simulationHeight),
+    );
   }
 
   handleMapSelectionKey(event) {
@@ -1474,6 +1637,7 @@ export class ClimateSimulator {
   classifyClimateZones() {
     if (this.climateSampleCount === 0) return;
 
+    this.gl.viewport(0, 0, this.simulationWidth, this.simulationHeight);
     this.simulation.climateZoneFramebuffer.use([0]);
     const climateZone = this.programs.climateZone;
     climateZone.use();
@@ -1490,7 +1654,7 @@ export class ClimateSimulator {
     const sourceIndex = 1 - targetIndex;
     const waterLevel = this.getWaterLevel();
 
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.viewport(0, 0, this.simulationWidth, this.simulationHeight);
 
     this.simulation.oceanFramebuffers[targetIndex].use([0, 1, 2]);
     const ocean = this.programs.ocean;

@@ -275,12 +275,28 @@ support Left/Right arrow, Home, and End keyboard navigation. The magnifying-glas
 button on the map enables a live 3× hover lens; press Escape or click the button
 again to disable it.
 
-The simulation defaults to 1366 × 683 pixels. Override its internal rendering
-resolution with URL parameters, for example:
+The output canvas and downloaded maps default to 1366 × 683 pixels. Override
+that output resolution with URL parameters, for example:
 
 ```text
 http://localhost:8000/?width=1024&height=512
 ```
+
+The separate simulation-resolution control reduces GPU use without shrinking
+the output canvas. It offers Maximum (`1 x 1` output pixels per simulation
+cell), High (`2 x 2`), Medium (`4 x 4`, the default), Low (`8 x 8`), Very low
+(`16 x 16`), and a custom integer block size from `1` through `64`. At the
+default output size, Medium runs a 342 × 171 model grid and uses roughly
+one-sixteenth of the simulation-texture storage required by Maximum. Linear
+texture filtering blends coarse cells when displaying them to avoid hard pixel
+discontinuities, including softened displayed climate-zone boundaries; exact
+stored class colors remain available to point inspection.
+
+Changing block size rebuilds GPU simulation targets and restarts warm-up,
+monthly climatology, wind climatology, and climate classification. Pressure
+areas, controls, the selected heightmap, output resolution, magnifier, and map
+download size are retained. Coarser grids can omit narrow islands, coastlines,
+and mountain barriers and are not numerically equivalent to finer grids.
 
 ## Deploy to GitHub Pages
 

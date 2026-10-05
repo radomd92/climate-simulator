@@ -213,5 +213,8 @@ export class Framebuffer {
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
     this.gl.drawBuffers(colorAttachments.map((index) => this.gl.COLOR_ATTACHMENT0 + index));
   }
-}
 
+  destroy() {
+    this.gl.deleteFramebuffer(this.framebuffer);
+  }
+}
