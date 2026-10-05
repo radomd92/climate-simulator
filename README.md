@@ -49,7 +49,11 @@ The reference solar-irradiance control specifies flux at the orbit's
 semi-major-axis distance. During automatic seasons, orbital eccentricity varies
 the effective flux by the inverse square of the Keplerian star-planet distance.
 It defaults to Earth's `0.0167`, with perihelion fixed to Earth's early-January
-alignment; manual seasons use the reference irradiance directly.
+alignment. Declination follows the same orbit's true longitude, so the more
+intense perihelion season is correspondingly shorter. Temperature equilibrium
+uses the fourth root of irradiance, approximating radiative response instead of
+scaling absolute Kelvin temperature linearly. Manual seasons use the reference
+irradiance directly.
 The tropical pressure minimum, trade-wind convergence, and evaporation maximum
 follow half of the solar-declination displacement. The precipitation model uses
 a narrower migrating ITCZ while subtropical subsidence and subpolar ascent move
@@ -68,8 +72,11 @@ tracer is generated over water, transported and mixed with humidity, and
 gradually decays over land. Humidity-driven monsoons require a high product of
 relative humidity and recent marine provenance, preventing residual continental
 humidity from activating a full monsoon. The marine gate also requires
-regional wind to cross from a sampled ocean sector toward land, so circular or
-offshore flow does not count as monsoon inflow merely because it is humid.
+regional wind to trace upwind to ocean at one of three distances, so diagonal
+coastal inflow is represented while circular or offshore flow does not count as
+monsoon inflow merely because it is humid. Marine provenance persists farther
+over heated land, and verified warm-season humid onshore flow can partially
+offset subtropical subsidence without removing it from dry interiors.
 
 ## Ocean model
 
@@ -77,7 +84,9 @@ The ocean has coupled surface and deep layers. The surface is driven by
 atmospheric wind stress, Coriolis deflection, coastline constraints, and
 temperature/salinity density gradients. Evaporation raises salinity,
 precipitation freshens it, and local radiative forcing slowly restores
-sea-surface temperature.
+sea-surface temperature. The equilibrium curve keeps midlatitude oceans warmer
+than the polar floor so prevailing onshore winds moderate rather than overcool
+temperate west coasts.
 
 Surface wind stress includes Ekman deflection. Latitude-varying Coriolis and
 coast geometry intensify poleward western-boundary currents such as the Gulf
@@ -198,10 +207,11 @@ current atmospheric state.
 
 ## Seasons and climate zones
 
-Automatic seasons advance solar declination through a sinusoidal model year and
-vary irradiance with orbital eccentricity. The seasonal status reports the live
-effective irradiance. This is a partial orbital model: axial tilt remains fixed
-at 23.5 degrees and perihelion timing remains Earth-like.
+Automatic seasons solve Keplerian orbital position, derive solar declination
+from true longitude, and vary irradiance with orbital eccentricity. The seasonal
+status reports the live effective irradiance. This is a partial orbital model:
+axial tilt remains fixed at 23.5 degrees and perihelion timing remains
+Earth-like.
 The detail selector offers simulated years of roughly 3, 6, 12, 20, 40, 60,
 or 120 seconds after warm-up. Each mode covers the same amount of modeled
 atmosphere and ocean time: short years use larger transport and relaxation
@@ -237,8 +247,8 @@ Annual-mean temperature provides a proxy for the monthly warm-season count used
 to separate the `b` and `c` thermal subclasses.
 
 Monsoon classification also records a seasonal potential based on summer
-continental heating, transported relative humidity, convergence, and
-equatorward ocean access reinforced by a strong poleward plateau. Separate
+continental heating, transported relative humidity, directional ocean access,
+and equatorward ocean access reinforced by a strong poleward plateau. Separate
 cool-winter and warm monsoon thresholds prevent the subtropical desert belt
 from overriding windward East Asian climates without granting the same
 exception to warm desert interiors.

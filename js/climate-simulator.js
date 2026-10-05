@@ -30,6 +30,7 @@ import { PointClimatePanel } from "./point-climate-panel.js";
 const EARTH_ORBITAL_ECCENTRICITY = 0.0167;
 // The automatic year starts at the March equinox; Earth reaches perihelion 289 days later.
 const EARTH_PERIHELION_PHASE = 289 / 365.2422;
+const AXIAL_TILT_DEGREES = 23.5;
 
 export class ClimateSimulator {
   constructor(documentRoot) {
@@ -1042,8 +1043,7 @@ export class ClimateSimulator {
   advanceSeason() {
     const passesPerYear = this.getSeasonPassesPerYear();
     this.seasonPasses = (this.seasonPasses + 1) % passesPerYear;
-    const phase = this.seasonPasses / passesPerYear;
-    this.automaticDeclination = 23.5 * Math.sin(phase * Math.PI * 2);
+    this.automaticDeclination = this.getOrbitalState().declination;
     return this.seasonPasses === 0;
   }
 
@@ -1067,15 +1067,12 @@ export class ClimateSimulator {
     }
 
     this.controls.solarDeclination.value = this.automaticDeclination.toFixed(1);
-    const phase = this.seasonPasses / this.getSeasonPassesPerYear();
+    const { solarLongitude } = this.getOrbitalState();
     let season;
-    if (phase === 0) season = "March equinox";
-    else if (phase < 0.25) season = "Northern spring";
-    else if (phase === 0.25) season = "June solstice";
-    else if (phase < 0.5) season = "Northern summer";
-    else if (phase === 0.5) season = "September equinox";
-    else if (phase < 0.75) season = "Northern autumn";
-    else if (phase === 0.75) season = "December solstice";
+    if (this.seasonPasses === 0) season = "March equinox";
+    else if (solarLongitude < 0.5 * Math.PI) season = "Northern spring";
+    else if (solarLongitude < Math.PI) season = "Northern summer";
+    else if (solarLongitude < 1.5 * Math.PI) season = "Northern autumn";
     else season = "Northern winter";
     this.seasonPosition.textContent = [
       season,
@@ -1550,6 +1547,7 @@ export class ClimateSimulator {
     advection.setFloat("rotationSpeed", this.getRotationSpeed());
     advection.setFloat("globalCirculation", this.getGlobalCirculation());
     advection.setFloat("solarIrradiance", this.getSolarIrradiance());
+    advection.setFloat("referenceSolarIrradiance", this.getReferenceSolarIrradiance());
     advection.setFloat("solarDeclination", this.getSolarDeclination());
     advection.setFloat("simulationTimeStep", simulationTimeStep);
     this.meshes.fullscreen.draw();
@@ -1709,16 +1707,14 @@ export class ClimateSimulator {
     return Math.min(2, Math.max(0, this.readNumber(this.controls.deepOceanCirculation, 1)));
   }
 
-  getSolarIrradiance() {
-    const referenceIrradiance = Math.max(
+  getReferenceSolarIrradiance() {
+    return Math.max(
       0,
       this.readNumber(this.controls.insolation, 1361),
     ) * this.insolationUnitFactor;
-    if (!this.controls.autoSeasons.checked) return referenceIrradiance;
+  }
 
-    const eccentricity = this.getOrbitalEccentricity();
-    const phase = this.seasonPasses / this.getSeasonPassesPerYear();
-    const meanAnomaly = 2 * Math.PI * (phase - EARTH_PERIHELION_PHASE);
+  solveEccentricAnomaly(meanAnomaly, eccentricity) {
     let eccentricAnomaly = meanAnomaly;
     for (let iteration = 0; iteration < 6; iteration += 1) {
       eccentricAnomaly -= (
@@ -1727,7 +1723,47 @@ export class ClimateSimulator {
         - meanAnomaly
       ) / (1 - eccentricity * Math.cos(eccentricAnomaly));
     }
+    return eccentricAnomaly;
+  }
+
+  getOrbitalState() {
+    const eccentricity = this.getOrbitalEccentricity();
+    const phase = this.seasonPasses / this.getSeasonPassesPerYear();
+    const meanAnomaly = 2 * Math.PI * (phase - EARTH_PERIHELION_PHASE);
+    const equinoxMeanAnomaly = -2 * Math.PI * EARTH_PERIHELION_PHASE;
+    const eccentricAnomaly = this.solveEccentricAnomaly(meanAnomaly, eccentricity);
+    const equinoxEccentricAnomaly = this.solveEccentricAnomaly(
+      equinoxMeanAnomaly,
+      eccentricity,
+    );
+    const trueAnomaly = Math.atan2(
+      Math.sqrt(1 - eccentricity * eccentricity) * Math.sin(eccentricAnomaly),
+      Math.cos(eccentricAnomaly) - eccentricity,
+    );
+    const equinoxTrueAnomaly = Math.atan2(
+      Math.sqrt(1 - eccentricity * eccentricity)
+        * Math.sin(equinoxEccentricAnomaly),
+      Math.cos(equinoxEccentricAnomaly) - eccentricity,
+    );
+    const solarLongitude = (
+      trueAnomaly - equinoxTrueAnomaly + 2 * Math.PI
+    ) % (2 * Math.PI);
+    const axialTilt = AXIAL_TILT_DEGREES * Math.PI / 180;
     const relativeDistance = 1 - eccentricity * Math.cos(eccentricAnomaly);
+    return {
+      declination: Math.asin(
+        Math.sin(axialTilt) * Math.sin(solarLongitude),
+      ) * 180 / Math.PI,
+      relativeDistance,
+      solarLongitude,
+    };
+  }
+
+  getSolarIrradiance() {
+    const referenceIrradiance = this.getReferenceSolarIrradiance();
+    if (!this.controls.autoSeasons.checked) return referenceIrradiance;
+
+    const { relativeDistance } = this.getOrbitalState();
     return referenceIrradiance / (relativeDistance * relativeDistance);
   }
 

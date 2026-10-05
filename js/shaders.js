@@ -47,10 +47,11 @@ export const shaders = {
     float getEquilibriumTemperature(vec2 uv) {
       float latitude = getLatitude(uv);
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
-      float temperature = 273.15 + mix(-45.0, 30.0, solarFactor) - 3.0;
+      float temperature = 273.15 + mix(-20.0, 30.0, solarFactor) - 3.0;
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
       temperature += seasonality * 12.0;
-      return max(temperature * solarIrradiance / 1361.0, 271.0);
+      float temperatureScale = pow(max(solarIrradiance / 1361.0, 0.0), 0.25);
+      return max(temperature * temperatureScale, 271.0);
     }
 
     float readTemperature(vec2 uv) {
@@ -489,6 +490,7 @@ export const shaders = {
     uniform float rotationSpeed;
     uniform float globalCirculation;
     uniform float solarIrradiance;
+    uniform float referenceSolarIrradiance;
     uniform float solarDeclination;
     uniform float simulationTimeStep;
 
@@ -513,40 +515,40 @@ export const shaders = {
 
     float getRegionalOnshoreFlow(vec2 uv, vec2 wind, float latitude) {
       float cosineLatitude = max(cos(radians(latitude)), 0.15);
-      float zonalOffset = 0.04 / cosineLatitude;
-      float meridionalOffset = 0.08;
       float windSpeed = length(wind);
       vec2 windDirection = wind / max(windSpeed, 0.001);
-      float oceanWest = getOceanWeight(uv - vec2(zonalOffset, 0.0));
-      float oceanEast = getOceanWeight(uv + vec2(zonalOffset, 0.0));
-      float oceanSouth = getOceanWeight(uv - vec2(0.0, meridionalOffset));
-      float oceanNorth = getOceanWeight(uv + vec2(0.0, meridionalOffset));
-      float onshoreFlux = max(
-        max(
-          oceanWest * max(windDirection.x, 0.0),
-          oceanEast * max(-windDirection.x, 0.0)
-        ),
-        max(
-          oceanSouth * max(windDirection.y, 0.0),
-          oceanNorth * max(-windDirection.y, 0.0)
-        )
-      );
-      float windSupport = smoothstep(2.0, 10.0, windSpeed);
-      return windSupport * smoothstep(0.08, 0.55, onshoreFlux);
+      float oceanAccess = 0.0;
+      for (int sampleIndex = 1; sampleIndex <= 3; sampleIndex += 1) {
+        float distanceDegrees = 6.0 * float(sampleIndex);
+        vec2 upwindOffset = windDirection * vec2(
+          distanceDegrees / (360.0 * cosineLatitude),
+          distanceDegrees / 180.0
+        );
+        vec2 sampleCoordinate = uv - upwindOffset;
+        sampleCoordinate.y = clamp(sampleCoordinate.y, 0.0, 1.0);
+        oceanAccess = max(oceanAccess, getOceanWeight(sampleCoordinate));
+      }
+      float windSupport = smoothstep(2.0, 8.0, windSpeed);
+      return windSupport * smoothstep(0.08, 0.55, oceanAccess);
     }
 
     float getOceanEquilibriumTemperature(float latitude) {
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
-      float temperature = 273.15 + mix(-45.0, 30.0, solarFactor) - 3.0;
+      float temperature = 273.15 + mix(-20.0, 30.0, solarFactor) - 3.0;
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
       temperature += seasonality * 12.0;
-      return max(temperature * solarIrradiance / 1361.0, 271.0);
+      float temperatureScale = pow(max(solarIrradiance / 1361.0, 0.0), 0.25);
+      return max(temperature * temperatureScale, 271.0);
     }
 
     float getAnnualOceanEquilibriumTemperature(float latitude) {
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
-      float temperature = 273.15 + mix(-45.0, 30.0, solarFactor) - 3.0;
-      return max(temperature * solarIrradiance / 1361.0, 271.0);
+      float temperature = 273.15 + mix(-20.0, 30.0, solarFactor) - 3.0;
+      float temperatureScale = pow(
+        max(referenceSolarIrradiance / 1361.0, 0.0),
+        0.25
+      );
+      return max(temperature * temperatureScale, 271.0);
     }
 
     float scaledFraction(float fraction) {
@@ -629,8 +631,12 @@ export const shaders = {
         float seasonality =
           sin(radians(latitude)) * sin(radians(solarDeclination));
         iceSurfaceTemperature += seasonality * 35.0;
+        float temperatureScale = pow(
+          max(solarIrradiance / 1361.0, 0.0),
+          0.25
+        );
         iceSurfaceTemperature = max(
-          iceSurfaceTemperature * solarIrradiance / 1361.0,
+          iceSurfaceTemperature * temperatureScale,
           1.0
         );
         return mix(
@@ -646,16 +652,14 @@ export const shaders = {
       // Most of the heightmap's land range represents low terrain. Applying
       // the lapse rate nonlinearly reserves strong cooling for mountains.
       float elevationCooling = pow(elevation, 1.7) * 70.0;
-      temperature -= elevationCooling;
-
       // Continental interiors retain strong seasonality. Where the annual
       // vector-mean wind traces back to ocean, current SST is transported
       // inland with a reach controlled by the consistency and speed of wind.
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
       temperature += seasonality * 50.0;
-      float insolationScale = solarIrradiance / 1361.0;
+      float temperatureScale = pow(max(solarIrradiance / 1361.0, 0.0), 0.25);
       float continentalTemperature = max(
-        temperature * insolationScale,
+        temperature * temperatureScale - elevationCooling,
         1.0
       );
       float maritimeInfluence;
@@ -668,7 +672,7 @@ export const shaders = {
       );
       // SST already includes the insolation response from the ocean pass.
       float maritimeTemperature = max(
-        upwindOceanTemperature - elevationCooling * insolationScale,
+        upwindOceanTemperature - elevationCooling,
         1.0
       );
       return mix(
@@ -955,7 +959,7 @@ export const shaders = {
           simulationTimeStep
         );
         marineMoisture *= pow(
-          mix(0.997, 0.990, daytimeHeating),
+          mix(0.997, 0.994, daytimeHeating),
           simulationTimeStep
         );
       }
@@ -1068,12 +1072,16 @@ export const shaders = {
       temperateMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       deepMarineMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       plateauMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
+      float effectiveSubtropicalSubsidence = subtropicalSubsidence * (
+        1.0
+        - 0.55 * seasonalLandHeating * humidOnshoreFlow * monsoonFlowSupport
+      );
       float monsoonOrography = max(orographicLift, polewardRelief);
       float rainfallEfficiency = clamp(
         0.35
           + 0.90 * equatorialAscent
           + 0.45 * subpolarAscent
-          - 0.32 * subtropicalSubsidence
+          - 0.32 * effectiveSubtropicalSubsidence
           + convergenceRain
           + 0.80 * orographicLift
           + 1.20 * monsoonAscent
@@ -1212,26 +1220,21 @@ export const shaders = {
 
     float getRegionalOnshoreFlow(vec2 uv, vec2 wind, float latitude) {
       float cosineLatitude = max(cos(radians(latitude)), 0.15);
-      float zonalOffset = 0.04 / cosineLatitude;
-      float meridionalOffset = 0.08;
       float windSpeed = length(wind);
       vec2 windDirection = wind / max(windSpeed, 0.001);
-      float oceanWest = getOceanWeight(uv - vec2(zonalOffset, 0.0));
-      float oceanEast = getOceanWeight(uv + vec2(zonalOffset, 0.0));
-      float oceanSouth = getOceanWeight(uv - vec2(0.0, meridionalOffset));
-      float oceanNorth = getOceanWeight(uv + vec2(0.0, meridionalOffset));
-      float onshoreFlux = max(
-        max(
-          oceanWest * max(windDirection.x, 0.0),
-          oceanEast * max(-windDirection.x, 0.0)
-        ),
-        max(
-          oceanSouth * max(windDirection.y, 0.0),
-          oceanNorth * max(-windDirection.y, 0.0)
-        )
-      );
-      float windSupport = smoothstep(2.0, 10.0, windSpeed);
-      return windSupport * smoothstep(0.08, 0.55, onshoreFlux);
+      float oceanAccess = 0.0;
+      for (int sampleIndex = 1; sampleIndex <= 3; sampleIndex += 1) {
+        float distanceDegrees = 6.0 * float(sampleIndex);
+        vec2 upwindOffset = windDirection * vec2(
+          distanceDegrees / (360.0 * cosineLatitude),
+          distanceDegrees / 180.0
+        );
+        vec2 sampleCoordinate = uv - upwindOffset;
+        sampleCoordinate.y = clamp(sampleCoordinate.y, 0.0, 1.0);
+        oceanAccess = max(oceanAccess, getOceanWeight(sampleCoordinate));
+      }
+      float windSupport = smoothstep(2.0, 8.0, windSpeed);
+      return windSupport * smoothstep(0.08, 0.55, oceanAccess);
     }
 
     void main() {
