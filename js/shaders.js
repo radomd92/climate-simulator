@@ -20,6 +20,7 @@ export const shaders = {
     uniform sampler2D previousSalinity;
     uniform sampler2D previousDeepState;
     uniform sampler2D previousOverturning;
+    uniform sampler2D atmosphericPressureState;
     uniform float waterLevel;
     uniform float rotationSpeed;
     uniform float solarIrradiance;
@@ -311,6 +312,17 @@ export const shaders = {
         equilibriumTemperature,
         scaledFraction(radiativeRestoring)
       );
+      float cycloneIntensity = clamp(
+        texture(atmosphericPressureState, textureCoordinate).g,
+        0.0,
+        1.0
+      );
+      float cycloneCoolingTarget = max(equilibriumTemperature - 4.0, 271.0);
+      temperature = mix(
+        temperature,
+        min(temperature, cycloneCoolingTarget),
+        scaledFraction(0.04 * cycloneIntensity)
+      );
       float precipitation = texture(precipitationMap, textureCoordinate).g;
       float evaporation = clamp(
         (temperature - 273.15) / 30.0,
@@ -492,6 +504,8 @@ export const shaders = {
     uniform float solarIrradiance;
     uniform float referenceSolarIrradiance;
     uniform float solarDeclination;
+    uniform float weatherTime;
+    uniform float tropicalCycloneActivity;
     uniform float simulationTimeStep;
 
     in vec2 textureCoordinate;
@@ -688,7 +702,11 @@ export const shaders = {
       return clamp(texture(pressureForcingMap, uv).r, -0.25, 0.25);
     }
 
-    float getEquilibriumPressure(vec2 uv) {
+    float getEquilibriumPressure(
+      vec2 uv,
+      float cycloneIntensity,
+      float cyclonePressureSupport
+    ) {
       float latitude = getLatitude(uv);
       float height = texture(heightmap, uv).r;
       float elevation = getElevation(height);
@@ -703,7 +721,11 @@ export const shaders = {
       float thermalLow = -0.04 * seasonalAnomaly;
       float terrainHigh = 0.04 * elevation;
       float customPressure = getCustomPressureOffset(uv);
-      return 1.0 + pressureBelts + thermalLow + terrainHigh + customPressure;
+      float cycloneLow = -0.085
+        * pow(clamp(cycloneIntensity, 0.0, 1.0), 1.2)
+        * cyclonePressureSupport;
+      float localForcing = clamp(customPressure + cycloneLow, -0.25, 0.25);
+      return 1.0 + pressureBelts + thermalLow + terrainHigh + localForcing;
     }
 
     vec2 getGlobalWind(float latitude) {
@@ -729,6 +751,24 @@ export const shaders = {
       return vec2(zonalWind, meridionalWind) * rotationScale * thermalScale;
     }
 
+    float getCycloneSeed(vec2 uv, float latitude) {
+      float latitudePhase = radians(latitude);
+      float firstWave = sin(
+        2.0 * PI * (11.0 * uv.x + 0.0060 * weatherTime)
+        + 2.0 * latitudePhase
+      );
+      float secondWave = sin(
+        2.0 * PI * (17.0 * uv.x - 0.0085 * weatherTime)
+        - 3.0 * latitudePhase
+      );
+      float thirdWave = sin(
+        2.0 * PI * (5.0 * uv.x + 0.0045 * weatherTime)
+        + 5.0 * latitudePhase
+      );
+      float interference = (firstWave + secondWave + thirdWave) / 3.0;
+      return smoothstep(0.72, 0.94, interference);
+    }
+
     void main() {
       vec2 texel = 1.0 / vec2(textureSize(previousPressure, 0));
       float latitude = getLatitude(textureCoordinate);
@@ -748,11 +788,38 @@ export const shaders = {
       float terrainSlope = length(terrainGradient);
 
       vec2 oldWind = texture(previousWind, textureCoordinate).rg;
+      float rotationRatio = rotationSpeed / 460.0;
+      float rotationSupport = smoothstep(0.05, 0.50, abs(rotationRatio));
+      vec2 globalWind = getGlobalWind(latitude);
       vec2 transportScale = vec2(1.0 / cosineLatitude, 2.0)
         * 0.00002
         * simulationTimeStep;
       vec2 backtracedCoordinate = textureCoordinate - oldWind * transportScale;
       vec2 wind = texture(previousWind, backtracedCoordinate).rg;
+      float polewardDirection = latitude / sqrt(latitude * latitude + 36.0);
+      vec2 cycloneDrift = rotationSupport * vec2(
+        -2.4,
+        5.5 * polewardDirection
+      );
+      vec2 cycloneSteering = 0.70 * oldWind + 0.30 * globalWind + cycloneDrift;
+      vec2 cycloneTransportScale = vec2(1.0 / cosineLatitude, 2.0)
+        * 0.00008
+        * simulationTimeStep;
+      vec2 cycloneCoordinate = textureCoordinate
+        - cycloneSteering * cycloneTransportScale;
+      cycloneCoordinate.y = clamp(cycloneCoordinate.y, 0.0, 1.0);
+      float cycloneIntensity = clamp(
+        texture(previousPressure, cycloneCoordinate).g,
+        0.0,
+        1.0
+      );
+      float latitudeCellSize = 180.0
+        / float(textureSize(previousPressure, 0).y);
+      float cyclonePressureSupport = mix(
+        1.0,
+        0.35,
+        smoothstep(3.0, 10.0, latitudeCellSize)
+      );
       float pressure = texture(previousPressure, textureCoordinate).r;
 
       float pressureLeft = texture(previousPressure, textureCoordinate - vec2(texel.x, 0.0)).r;
@@ -771,7 +838,6 @@ export const shaders = {
       float divergence = (windRight.x - windLeft.x) / cosineLatitude
         + windUp.y - windDown.y;
 
-      float rotationRatio = rotationSpeed / 460.0;
       float coriolis = 0.012 * rotationRatio * sin(radians(latitude));
       vec2 coriolisAcceleration = coriolis * vec2(wind.y, -wind.x);
       vec2 pressureAcceleration = -35.0 * pressureGradient;
@@ -811,7 +877,6 @@ export const shaders = {
       // Large-scale circulation is a weak relaxation target, not a fixed
       // velocity. Thermal pressure gradients can still create monsoons and
       // deflect the latitude bands around continents.
-      vec2 globalWind = getGlobalWind(latitude);
       float circulationCoupling = globalCirculation
         * mix(0.018, 0.008, smoothstep(waterLevel, 1.0, height));
       wind += scaledFraction(circulationCoupling) * (globalWind - wind);
@@ -833,8 +898,17 @@ export const shaders = {
 
       float pressureLaplacian = pressureLeft + pressureRight
         + pressureDown + pressureUp - 4.0 * pressure;
-      float equilibriumPressure = getEquilibriumPressure(textureCoordinate);
-      pressure += scaledFraction(0.02) * (equilibriumPressure - pressure)
+      float equilibriumPressure = getEquilibriumPressure(
+        textureCoordinate,
+        cycloneIntensity,
+        cyclonePressureSupport
+      );
+      float pressureRelaxation = mix(
+        0.02,
+        0.09,
+        cycloneIntensity * cyclonePressureSupport
+      );
+      pressure += scaledFraction(pressureRelaxation) * (equilibriumPressure - pressure)
         + simulationTimeStep * (
           -0.00002 * divergence
           + 0.20 * pressureLaplacian
@@ -892,6 +966,56 @@ export const shaders = {
         0.4
       ) * 81.0;
       float relativeHumidity = clamp(waterVapor * humidityScale, 0.0, 1.0);
+      float cycloneOceanSupport = 1.0 - smoothstep(
+        waterLevel - 0.005,
+        waterLevel + 0.005,
+        height
+      );
+      float seaSurfaceKelvin = texture(
+        seaSurfaceTemperature,
+        textureCoordinate
+      ).r;
+      float cycloneWarmWaterSupport = smoothstep(
+        299.15,
+        301.15,
+        seaSurfaceKelvin
+      );
+      float absoluteLatitude = abs(latitude);
+      float cycloneLatitudeSupport = smoothstep(3.0, 7.0, absoluteLatitude)
+        * (1.0 - smoothstep(28.0, 35.0, absoluteLatitude));
+      float cycloneHumiditySupport = smoothstep(0.55, 0.75, relativeHumidity);
+      float cycloneEnabled = step(0.001, tropicalCycloneActivity);
+      float cycloneSuitability = cycloneEnabled
+        * cycloneOceanSupport
+        * cycloneWarmWaterSupport
+        * cycloneLatitudeSupport
+        * rotationSupport
+        * cycloneHumiditySupport;
+      float oceanRetention = mix(
+        0.88,
+        0.985,
+        cycloneWarmWaterSupport * cycloneHumiditySupport
+      );
+      float cycloneRetention = mix(0.90, oceanRetention, cycloneOceanSupport);
+      cycloneIntensity *= pow(cycloneRetention, simulationTimeStep);
+      float establishedCyclone = smoothstep(0.02, 0.08, cycloneIntensity);
+      cycloneIntensity = mix(
+        cycloneIntensity,
+        1.0,
+        scaledFraction(0.045 * cycloneSuitability * establishedCyclone)
+      );
+      float cycloneGenesis = scaledFraction(
+        0.012
+        * clamp(tropicalCycloneActivity, 0.0, 2.0)
+        * cycloneSuitability
+        * getCycloneSeed(textureCoordinate, latitude)
+      );
+      cycloneIntensity = clamp(
+        cycloneIntensity + (1.0 - cycloneIntensity) * cycloneGenesis,
+        0.0,
+        1.0
+      );
+      temperature -= 2.0 * pow(cycloneIntensity, 1.2);
 
       float orographicLift = 0.0;
       float condensedWater = 0.0;
@@ -1150,6 +1274,13 @@ export const shaders = {
         transportedPrecipitation,
         pow(0.20, simulationTimeStep)
       );
+      float cyclonePrecipitation = 600.0
+        * pow(cycloneIntensity, 1.5)
+        * smoothstep(0.45, 0.80, relativeHumidity);
+      annualPrecipitation += min(
+        cyclonePrecipitation,
+        max(1500.0 - annualPrecipitation, 0.0)
+      );
 
       nextWaterVapor = vec4(
         waterVapor,
@@ -1159,7 +1290,7 @@ export const shaders = {
       );
       nextWind = vec4(wind, 0.0, 0.0);
       temperatureOutput = vec4(temperature);
-      nextPressure = vec4(pressure, 0.0, 0.0, 0.0);
+      nextPressure = vec4(pressure, cycloneIntensity, 0.0, 0.0);
     }
   `,
 

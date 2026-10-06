@@ -4,9 +4,12 @@ import {
   AUTO_SEASON_BATCH_SIZE,
   DEFAULT_HEIGHT,
   DEFAULT_SIMULATION_BLOCK_SIZE,
+  DEFAULT_TROPICAL_CYCLONE_ACTIVITY,
   DEFAULT_WIDTH,
+  MAX_TROPICAL_CYCLONE_ACTIVITY,
   MAX_SIMULATION_BLOCK_SIZE,
   MAX_PRESSURE_AREA_INTENSITY,
+  MIN_TROPICAL_CYCLONE_ACTIVITY,
   MIN_SIMULATION_BLOCK_SIZE,
   MIN_PRESSURE_AREA_INTENSITY,
   MIN_SEASONAL_SIMULATION_TIME_STEP,
@@ -67,6 +70,7 @@ export class ClimateSimulator {
       rotationSpeed: documentRoot.querySelector("#rotation-speed"),
       rotationUnit: documentRoot.querySelector("#rotation-unit"),
       globalCirculation: documentRoot.querySelector("#global-circulation"),
+      tropicalCycloneActivity: documentRoot.querySelector("#tropical-cyclone-activity"),
       oceanCirculation: documentRoot.querySelector("#ocean-circulation"),
       deepOceanCirculation: documentRoot.querySelector("#deep-ocean-circulation"),
       insolation: documentRoot.querySelector("#insolation"),
@@ -127,6 +131,7 @@ export class ClimateSimulator {
     this.completedClimateYears = 0;
     this.ready = false;
     this.completedPasses = 0;
+    this.weatherTime = 0;
     this.uploadedHeightmap = null;
     this.selectedPoint = null;
     this.pointReadFramebuffer = null;
@@ -252,6 +257,7 @@ export class ClimateSimulator {
       this.controls.waterLevel,
       this.controls.rotationSpeed,
       this.controls.globalCirculation,
+      this.controls.tropicalCycloneActivity,
       this.controls.oceanCirculation,
       this.controls.deepOceanCirculation,
       this.controls.insolation,
@@ -846,8 +852,8 @@ export class ClimateSimulator {
       allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
     ];
     const pressure = [
-      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
-      allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
+      allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
+      allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT),
     ];
     const pressureForcing = allocate(
       PRESSURE_FIELD_WIDTH,
@@ -1098,6 +1104,7 @@ export class ClimateSimulator {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.pingPongIndex = 0;
+    this.weatherTime = 0;
     this.markSimulationUnsettled();
   }
 
@@ -1667,6 +1674,7 @@ export class ClimateSimulator {
     ocean.setTexture("previousSalinity", 5, this.simulation.salinity[sourceIndex]);
     ocean.setTexture("previousDeepState", 6, this.simulation.deepOceanState[sourceIndex]);
     ocean.setTexture("previousOverturning", 7, this.simulation.overturning[sourceIndex]);
+    ocean.setTexture("atmosphericPressureState", 8, this.simulation.pressure[sourceIndex]);
     ocean.setFloat("waterLevel", waterLevel);
     ocean.setFloat("rotationSpeed", this.getRotationSpeed());
     ocean.setFloat("solarIrradiance", this.getSolarIrradiance());
@@ -1713,6 +1721,8 @@ export class ClimateSimulator {
     advection.setFloat("solarIrradiance", this.getSolarIrradiance());
     advection.setFloat("referenceSolarIrradiance", this.getReferenceSolarIrradiance());
     advection.setFloat("solarDeclination", this.getSolarDeclination());
+    advection.setFloat("weatherTime", this.weatherTime);
+    advection.setFloat("tropicalCycloneActivity", this.getTropicalCycloneActivity());
     advection.setFloat("simulationTimeStep", simulationTimeStep);
     this.meshes.fullscreen.draw();
 
@@ -1735,6 +1745,7 @@ export class ClimateSimulator {
     this.meshes.fullscreen.draw();
 
     this.pingPongIndex = sourceIndex;
+    this.weatherTime = (this.weatherTime + simulationTimeStep) % 100000;
   }
 
   render() {
@@ -1863,6 +1874,16 @@ export class ClimateSimulator {
     return Math.min(2, Math.max(0, this.readNumber(this.controls.globalCirculation, 1)));
   }
 
+  getTropicalCycloneActivity() {
+    return Math.min(MAX_TROPICAL_CYCLONE_ACTIVITY, Math.max(
+      MIN_TROPICAL_CYCLONE_ACTIVITY,
+      this.readNumber(
+        this.controls.tropicalCycloneActivity,
+        DEFAULT_TROPICAL_CYCLONE_ACTIVITY,
+      ),
+    ));
+  }
+
   getOceanCirculation() {
     return Math.min(2, Math.max(0, this.readNumber(this.controls.oceanCirculation, 1)));
   }
@@ -1980,6 +2001,9 @@ export class ClimateSimulator {
       this.rotationUnitFactor,
     );
     this.controls.globalCirculation.value = "1";
+    this.controls.tropicalCycloneActivity.value = String(
+      DEFAULT_TROPICAL_CYCLONE_ACTIVITY,
+    );
     this.controls.oceanCirculation.value = "1";
     this.controls.deepOceanCirculation.value = "1";
     this.setPhysicalInput(this.controls.insolation, 1361, this.insolationUnitFactor);

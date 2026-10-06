@@ -232,6 +232,22 @@
           </div>
 
           <div class="control-group">
+            <label for="tropical-cyclone-activity">Tropical cyclone activity</label>
+            <div class="input-with-unit">
+              <input
+                id="tropical-cyclone-activity"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value="1"
+              >
+              <span>Earth-like</span>
+            </div>
+            <p class="hint">Controls automatic storm genesis; 0 disables new cyclones.</p>
+          </div>
+
+          <div class="control-group">
             <label for="ocean-circulation">Ocean circulation strength</label>
             <div class="input-with-unit">
               <input
@@ -607,7 +623,7 @@
       <p class="eyebrow">Model notes</p>
       <h2 id="limitations-heading">Limitations</h2>
       <ul>
-        <li>The atmosphere is a single shallow-water layer, without vertical circulation or weather fronts.</li>
+        <li>The atmosphere is a single shallow-water layer, without vertical circulation or weather fronts; tropical cyclones are climate-scale moving vortices rather than resolved hurricanes.</li>
         <li>The ocean uses two coupled layers rather than full 3D bathymetry and does not include tides or a dynamic sea-ice layer.</li>
         <li>Surface temperature uses simplified radiative, elevation, sea-ice, and prevailing-wind ocean-transport effects; the planet has a fixed spherical radius.</li>
         <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>

@@ -78,6 +78,32 @@ monsoon inflow merely because it is humid. Marine provenance persists farther
 over heated land, and verified warm-season humid onshore flow can partially
 offset subtropical subsidence without removing it from dry interiors.
 
+## Tropical cyclones
+
+Automatic tropical cyclones form from smooth, moving seed disturbances where
+ocean temperature, humidity, latitude, and planetary rotation are favorable.
+The activity control ranges from disabled (`0`) to twice Earth-like genesis
+activity (`2`); it changes storm frequency rather than removing the model's
+wind, pressure, rainfall, and cooling caps.
+
+Cyclone intensity is transported in a second atmospheric-pressure texture
+channel. Storms follow the modeled wind with a weak westward and poleward
+drift, deepen the local pressure minimum, and use the existing pressure-gradient
+and Coriolis solver to generate rotating inflow. Their intensity strengthens
+over warm humid tropical water, weakens over cool water, and decays rapidly
+after landfall. Longitude wrapping lets storms cross the dateline without a
+discontinuity, and rotation support fades smoothly near the equator and on
+slowly rotating worlds.
+
+Active storms add bounded heavy rainfall, cool surface air, and mix a cold wake
+into sea-surface temperature. These effects enter the normal monthly and annual
+temperature, precipitation, SST, wind, and climate-classification statistics.
+SST cooling also provides negative feedback that limits storm lifetime. This is
+a climate-scale moving-vortex approximation, not a resolved hurricane model:
+it does not represent an eye or eyewall, vertical wind shear, storm surge, wave
+damage, or individual forecast tracks. Very coarse simulation grids show broad
+tropical storm complexes rather than compact vortices.
+
 ## Ocean model
 
 The ocean has coupled surface and deep layers. The surface is driven by
