@@ -34,9 +34,25 @@ import {
 import { PointClimatePanel } from "./point-climate-panel.js";
 
 const EARTH_ORBITAL_ECCENTRICITY = 0.0167;
-// The automatic year starts at the March equinox; Earth reaches perihelion 289 days later.
-const EARTH_PERIHELION_PHASE = 289 / 365.2422;
+const EARTH_PERIHELION_DAY = 3;
+const MARCH_EQUINOX_DAY = 79;
+const MODEL_YEAR_DAYS = 365;
 const AXIAL_TILT_DEGREES = 23.5;
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+const MONTH_LENGTHS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 export class ClimateSimulator {
   constructor(documentRoot) {
@@ -76,6 +92,7 @@ export class ClimateSimulator {
       insolation: documentRoot.querySelector("#insolation"),
       insolationUnit: documentRoot.querySelector("#insolation-unit"),
       orbitalEccentricity: documentRoot.querySelector("#orbital-eccentricity"),
+      perihelionDay: documentRoot.querySelector("#perihelion-day"),
       solarDeclination: documentRoot.querySelector("#solar-declination"),
       autoSeasons: documentRoot.querySelector("#auto-seasons"),
       seasonSpeed: documentRoot.querySelector("#season-speed"),
@@ -108,6 +125,7 @@ export class ClimateSimulator {
       documentRoot.querySelectorAll("[data-temperature-climatology-status]"),
     );
     this.seasonPosition = documentRoot.querySelector("#season-position");
+    this.perihelionDate = documentRoot.querySelector("#perihelion-date");
     this.simulationResolutionStatus = documentRoot.querySelector(
       "#simulation-resolution-status",
     );
@@ -146,6 +164,7 @@ export class ClimateSimulator {
 
     this.configureCanvasSize();
     this.updateSimulationResolution(false);
+    this.updatePerihelionDate(true);
     this.bindControls();
     this.renderPressureAreas();
     this.updateSeasonControls();
@@ -240,6 +259,12 @@ export class ClimateSimulator {
     });
 
     this.controls.heightmap.addEventListener("change", () => this.loadUploadedHeightmap());
+    this.controls.perihelionDay.addEventListener("input", () => {
+      this.updatePerihelionDate();
+    });
+    this.controls.perihelionDay.addEventListener("change", () => {
+      this.updatePerihelionDate(true);
+    });
     this.controls.simulationQuality.addEventListener("change", () => {
       const preset = Number.parseInt(this.controls.simulationQuality.value, 10);
       if (!Number.isInteger(preset)) {
@@ -262,6 +287,7 @@ export class ClimateSimulator {
       this.controls.deepOceanCirculation,
       this.controls.insolation,
       this.controls.orbitalEccentricity,
+      this.controls.perihelionDay,
       this.controls.solarDeclination,
     ].forEach((input) => input.addEventListener("input", () => this.markSimulationUnsettled()));
 
@@ -875,14 +901,14 @@ export class ClimateSimulator {
       allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
     ];
     const deepOceanState = [
-      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
-      allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
+      allocateSimulation(gl.RGBA32F, gl.RGBA, gl.FLOAT),
+      allocateSimulation(gl.RGBA32F, gl.RGBA, gl.FLOAT),
     ];
     const overturning = [
       allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
       allocateSimulation(gl.R32F, gl.RED, gl.FLOAT),
     ];
-    const temperature = allocateSimulation(gl.R32F, gl.RED, gl.FLOAT);
+    const temperature = allocateSimulation(gl.RG32F, gl.RG, gl.FLOAT);
     const biomes = allocateSimulation(gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
     const climateStatsA = [
       allocateSimulation(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT),
@@ -1216,6 +1242,7 @@ export class ClimateSimulator {
   updateSeasonControls() {
     const automatic = this.controls.autoSeasons.checked;
     this.controls.orbitalEccentricity.disabled = !automatic;
+    this.controls.perihelionDay.disabled = !automatic;
     this.controls.solarDeclination.disabled = automatic;
     this.controls.seasonSpeed.disabled = !automatic;
 
@@ -1675,11 +1702,13 @@ export class ClimateSimulator {
     ocean.setTexture("previousDeepState", 6, this.simulation.deepOceanState[sourceIndex]);
     ocean.setTexture("previousOverturning", 7, this.simulation.overturning[sourceIndex]);
     ocean.setTexture("atmosphericPressureState", 8, this.simulation.pressure[sourceIndex]);
+    ocean.setTexture("atmosphericTemperatureState", 9, this.simulation.temperature);
     ocean.setFloat("waterLevel", waterLevel);
     ocean.setFloat("rotationSpeed", this.getRotationSpeed());
     ocean.setFloat("solarIrradiance", this.getSolarIrradiance());
     ocean.setFloat("solarDeclination", this.getSolarDeclination());
     ocean.setFloat("oceanCirculation", this.getOceanCirculation());
+    ocean.setFloat("referenceStepsPerYear", REFERENCE_SEASON_PASSES_PER_YEAR);
     ocean.setFloat("simulationTimeStep", simulationTimeStep);
     this.meshes.fullscreen.draw();
 
@@ -1911,11 +1940,45 @@ export class ClimateSimulator {
     return eccentricAnomaly;
   }
 
+  getPerihelionDay() {
+    return Math.min(MODEL_YEAR_DAYS, Math.max(
+      1,
+      Math.round(this.readNumber(
+        this.controls.perihelionDay,
+        EARTH_PERIHELION_DAY,
+      )),
+    ));
+  }
+
+  getPerihelionPhase() {
+    const daysAfterMarchEquinox = (
+      this.getPerihelionDay() - MARCH_EQUINOX_DAY + MODEL_YEAR_DAYS
+    ) % MODEL_YEAR_DAYS;
+    return daysAfterMarchEquinox / MODEL_YEAR_DAYS;
+  }
+
+  updatePerihelionDate(normalizeInput = false) {
+    const dayOfYear = this.getPerihelionDay();
+    if (normalizeInput) {
+      this.controls.perihelionDay.value = String(dayOfYear);
+    }
+
+    let dayOfMonth = dayOfYear;
+    let monthIndex = 0;
+    while (dayOfMonth > MONTH_LENGTHS[monthIndex]) {
+      dayOfMonth -= MONTH_LENGTHS[monthIndex];
+      monthIndex += 1;
+    }
+    this.perihelionDate.textContent =
+      `Approximate date: ${MONTH_NAMES[monthIndex]} ${dayOfMonth}`;
+  }
+
   getOrbitalState() {
     const eccentricity = this.getOrbitalEccentricity();
     const phase = this.seasonPasses / this.getSeasonPassesPerYear();
-    const meanAnomaly = 2 * Math.PI * (phase - EARTH_PERIHELION_PHASE);
-    const equinoxMeanAnomaly = -2 * Math.PI * EARTH_PERIHELION_PHASE;
+    const perihelionPhase = this.getPerihelionPhase();
+    const meanAnomaly = 2 * Math.PI * (phase - perihelionPhase);
+    const equinoxMeanAnomaly = -2 * Math.PI * perihelionPhase;
     const eccentricAnomaly = this.solveEccentricAnomaly(meanAnomaly, eccentricity);
     const equinoxEccentricAnomaly = this.solveEccentricAnomaly(
       equinoxMeanAnomaly,
@@ -2008,6 +2071,8 @@ export class ClimateSimulator {
     this.controls.deepOceanCirculation.value = "1";
     this.setPhysicalInput(this.controls.insolation, 1361, this.insolationUnitFactor);
     this.controls.orbitalEccentricity.value = String(EARTH_ORBITAL_ECCENTRICITY);
+    this.controls.perihelionDay.value = String(EARTH_PERIHELION_DAY);
+    this.updatePerihelionDate();
     this.controls.solarDeclination.value = "0";
     this.controls.heightmap.value = "";
     this.clearSimulation();

@@ -304,7 +304,24 @@
               >
               <span>Earth: 0.0167</span>
             </div>
-            <p class="hint">Automatic seasons vary irradiance with orbital distance; perihelion is aligned to early January.</p>
+            <p class="hint">Automatic seasons vary irradiance with orbital distance.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="perihelion-day">Perihelion day</label>
+            <div class="input-with-unit">
+              <input
+                id="perihelion-day"
+                type="number"
+                min="1"
+                max="365"
+                step="1"
+                value="3"
+              >
+              <span>day of year</span>
+            </div>
+            <p id="perihelion-date" class="hint" aria-live="polite">Approximate date: January 3</p>
+            <p class="hint">Sets closest approach during automatic seasons; Earth is approximately day 3.</p>
           </div>
 
           <div class="control-group">
@@ -627,7 +644,7 @@
         <li>The ocean uses two coupled layers rather than full 3D bathymetry and does not include tides or a dynamic sea-ice layer.</li>
         <li>Surface temperature uses simplified radiative, elevation, sea-ice, and prevailing-wind ocean-transport effects; the planet has a fixed spherical radius.</li>
         <li>Biome mapping extrapolates outside Earth’s observed climate range.</li>
-        <li>Seasonal forcing links Keplerian declination and inverse-square eccentricity, but uses fixed Earth-like axial tilt and perihelion timing rather than a full orbital model.</li>
+        <li>Seasonal forcing links Keplerian declination and inverse-square eccentricity, but uses a fixed Earth-like axial tilt rather than a full orbital model.</li>
         <li>Point climatology uses equal-length model months; climate zones remain an approximation of observational normals.</li>
         <li>The empirical parameters are tuned to resemble Earth and are not resolution-independent; coarse simulation blocks can omit narrow terrain and coastlines.</li>
       </ul>

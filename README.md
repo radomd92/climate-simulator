@@ -48,11 +48,13 @@ producing seasonal monsoon reversal through land-ocean pressure differences.
 The reference solar-irradiance control specifies flux at the orbit's
 semi-major-axis distance. During automatic seasons, orbital eccentricity varies
 the effective flux by the inverse square of the Keplerian star-planet distance.
-It defaults to Earth's `0.0167`, with perihelion fixed to Earth's early-January
-alignment. Declination follows the same orbit's true longitude, so the more
-intense perihelion season is correspondingly shorter. Temperature equilibrium
-uses the fourth root of irradiance, approximating radiative response instead of
-scaling absolute Kelvin temperature linearly. Manual seasons use the reference
+It defaults to Earth's `0.0167`. Perihelion can be placed on any numbered day
+from `1` through `365`; the interface shows the corresponding approximate
+non-leap-calendar date and Earth presets restore day `3` (approximately January
+3). Declination follows the same orbit's true longitude, so the more intense
+perihelion season is correspondingly shorter. Temperature equilibrium uses the
+fourth root of irradiance, approximating radiative response instead of scaling
+absolute Kelvin temperature linearly. Manual seasons use the reference
 irradiance directly.
 The tropical pressure minimum, trade-wind convergence, and evaporation maximum
 follow half of the solar-declination displacement. The precipitation model uses
@@ -117,6 +119,16 @@ sea-surface temperature. The equilibrium curve keeps midlatitude oceans warmer
 than the polar floor so prevailing onshore winds moderate rather than overcool
 temperate west coasts.
 
+The atmosphere exports its humidity- and wind-dependent annualized evaporation
+rate to the following ocean pass. Surface salinity then responds to the bounded
+difference between evaporation and precipitation in an effective mixed layer:
+dry, windy water concentrates salt, while rainy water freshens. Temperature and
+salinity both contribute to density. Coast-aware, resolution-normalized density
+gradients accelerate surface currents and the deep return flow without using
+land defaults as false density sources. High-latitude water that is cold or
+saline enough sinks and carries its salinity into a full-precision deep state,
+allowing gradual thermohaline anomalies to accumulate over multiple years.
+
 Surface wind stress includes Ekman deflection. Latitude-varying Coriolis and
 coast geometry intensify poleward western-boundary currents such as the Gulf
 Stream and Kuroshio, while eastern-boundary currents such as California and
@@ -161,7 +173,9 @@ displays visualize each layer's velocity direction and strength.
 
 This remains a two-layer approximation. It does not resolve full 3D basin
 bathymetry, multiple thermocline layers, tides, a dynamic sea-ice layer, or
-eddies below the simulation grid.
+eddies below the simulation grid. The freshwater budget is a bounded local
+proxy rather than a globally conserved hydrological cycle: river runoff,
+groundwater, sea-ice brine rejection, and meltwater transport are not modeled.
 
 ## Temperature and precipitation
 
@@ -244,8 +258,8 @@ current atmospheric state.
 Automatic seasons solve Keplerian orbital position, derive solar declination
 from true longitude, and vary irradiance with orbital eccentricity. The seasonal
 status reports the live effective irradiance. This is a partial orbital model:
-axial tilt remains fixed at 23.5 degrees and perihelion timing remains
-Earth-like.
+axial tilt remains fixed at 23.5 degrees, while perihelion timing is configurable
+by approximate day of year.
 The detail selector offers simulated years of roughly 3, 6, 12, 20, 40, 60,
 or 120 seconds after warm-up. Each mode covers the same amount of modeled
 atmosphere and ocean time: short years use larger transport and relaxation

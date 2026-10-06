@@ -21,11 +21,13 @@ export const shaders = {
     uniform sampler2D previousDeepState;
     uniform sampler2D previousOverturning;
     uniform sampler2D atmosphericPressureState;
+    uniform sampler2D atmosphericTemperatureState;
     uniform float waterLevel;
     uniform float rotationSpeed;
     uniform float solarIrradiance;
     uniform float solarDeclination;
     uniform float oceanCirculation;
+    uniform float referenceStepsPerYear;
     uniform float simulationTimeStep;
 
     in vec2 textureCoordinate;
@@ -129,18 +131,31 @@ export const shaders = {
       temperature = mix(temperature, deepTemperature, upwellingFraction);
       salinity = mix(salinity, deepSalinity, upwellingFraction);
 
-      float temperatureNeighbors = 0.25 * (
-        readTemperature(textureCoordinate - vec2(texel.x, 0.0))
-        + readTemperature(textureCoordinate + vec2(texel.x, 0.0))
-        + readTemperature(textureCoordinate - vec2(0.0, texel.y))
-        + readTemperature(textureCoordinate + vec2(0.0, texel.y))
-      );
-      float salinityNeighbors = 0.25 * (
-        readSalinity(textureCoordinate - vec2(texel.x, 0.0))
-        + readSalinity(textureCoordinate + vec2(texel.x, 0.0))
-        + readSalinity(textureCoordinate - vec2(0.0, texel.y))
-        + readSalinity(textureCoordinate + vec2(0.0, texel.y))
-      );
+      vec2 leftCoordinate = textureCoordinate - vec2(texel.x, 0.0);
+      vec2 rightCoordinate = textureCoordinate + vec2(texel.x, 0.0);
+      vec2 downCoordinate = textureCoordinate - vec2(0.0, texel.y);
+      vec2 upCoordinate = textureCoordinate + vec2(0.0, texel.y);
+      float oceanLeft = isOcean(leftCoordinate);
+      float oceanRight = isOcean(rightCoordinate);
+      float oceanDown = isOcean(downCoordinate);
+      float oceanUp = isOcean(upCoordinate);
+      float oceanNeighborWeight = oceanLeft + oceanRight + oceanDown + oceanUp;
+      float temperatureNeighbors = (
+        oceanLeft * readTemperature(leftCoordinate)
+        + oceanRight * readTemperature(rightCoordinate)
+        + oceanDown * readTemperature(downCoordinate)
+        + oceanUp * readTemperature(upCoordinate)
+      ) / max(oceanNeighborWeight, 1.0);
+      float salinityNeighbors = (
+        oceanLeft * readSalinity(leftCoordinate)
+        + oceanRight * readSalinity(rightCoordinate)
+        + oceanDown * readSalinity(downCoordinate)
+        + oceanUp * readSalinity(upCoordinate)
+      ) / max(oceanNeighborWeight, 1.0);
+      if (oceanNeighborWeight < 0.5) {
+        temperatureNeighbors = temperature;
+        salinityNeighbors = salinity;
+      }
       float latitudeCellDegrees = 180.0
         / float(textureSize(previousTemperature, 0).y);
       float scalarMixing = min(
@@ -174,14 +189,24 @@ export const shaders = {
       float coriolis = 0.020 * rotationRatio * sin(radians(latitude));
       current += simulationTimeStep * coriolis * vec2(current.y, -current.x);
 
-      float densityLeft = getDensityAnomaly(textureCoordinate - vec2(texel.x, 0.0));
-      float densityRight = getDensityAnomaly(textureCoordinate + vec2(texel.x, 0.0));
-      float densityDown = getDensityAnomaly(textureCoordinate - vec2(0.0, texel.y));
-      float densityUp = getDensityAnomaly(textureCoordinate + vec2(0.0, texel.y));
+      float centerDensity = getDensityAnomaly(textureCoordinate);
+      float densityLeft = mix(centerDensity, getDensityAnomaly(leftCoordinate), oceanLeft);
+      float densityRight = mix(centerDensity, getDensityAnomaly(rightCoordinate), oceanRight);
+      float densityDown = mix(centerDensity, getDensityAnomaly(downCoordinate), oceanDown);
+      float densityUp = mix(centerDensity, getDensityAnomaly(upCoordinate), oceanUp);
+      float referenceCellDegrees = 180.0 / 171.0;
+      float longitudeCellDegrees = 360.0
+        / float(textureSize(previousSalinity, 0).x);
       vec2 densityGradient = vec2(
-        (densityRight - densityLeft) / cosineLatitude,
-        densityUp - densityDown
+        (densityRight - densityLeft)
+          * referenceCellDegrees
+          / (longitudeCellDegrees * cosineLatitude),
+        (densityUp - densityDown) * referenceCellDegrees / latitudeCellDegrees
       );
+      float densityGradientMagnitude = length(densityGradient);
+      if (densityGradientMagnitude > 12.0) {
+        densityGradient *= 12.0 / densityGradientMagnitude;
+      }
       current -= simulationTimeStep * oceanCirculation * 0.012 * densityGradient;
 
       vec2 coastGradient = getCoastGradient(textureCoordinate, texel);
@@ -335,16 +360,26 @@ export const shaders = {
         min(temperature, cycloneCoolingTarget),
         scaledFraction(0.04 * cycloneIntensity)
       );
-      float precipitation = texture(precipitationMap, textureCoordinate).g;
-      float evaporation = clamp(
-        (temperature - 273.15) / 30.0,
+      float precipitation = clamp(
+        texture(precipitationMap, textureCoordinate).g,
         0.0,
-        1.5
-      ) * (1.0 + 0.03 * length(wind));
-      salinity += simulationTimeStep * (
-        0.0012 * evaporation
-        - 0.0008 * clamp(precipitation / 200.0, 0.0, 2.0)
+        1500.0
       );
+      float evaporation = clamp(
+        texture(atmosphericTemperatureState, textureCoordinate).g,
+        0.0,
+        600.0
+      );
+      float freshwaterLoss = clamp(
+        evaporation - precipitation,
+        -250.0,
+        250.0
+      );
+      float mixedLayerDepthCm = 10000.0;
+      float concentrationExponent = simulationTimeStep
+        * freshwaterLoss
+        / (mixedLayerDepthCm * referenceStepsPerYear);
+      salinity *= exp(concentrationExponent);
       salinity = clamp(
         mix(salinity, 35.0, scaledFraction(0.0005)),
         30.0,
@@ -419,19 +454,51 @@ export const shaders = {
       float temperature = state.b;
       float salinity = state.a;
 
-      vec4 stateLeft = readDeepState(textureCoordinate - vec2(texel.x, 0.0));
-      vec4 stateRight = readDeepState(textureCoordinate + vec2(texel.x, 0.0));
-      vec4 stateDown = readDeepState(textureCoordinate - vec2(0.0, texel.y));
-      vec4 stateUp = readDeepState(textureCoordinate + vec2(0.0, texel.y));
+      vec2 leftCoordinate = textureCoordinate - vec2(texel.x, 0.0);
+      vec2 rightCoordinate = textureCoordinate + vec2(texel.x, 0.0);
+      vec2 downCoordinate = textureCoordinate - vec2(0.0, texel.y);
+      vec2 upCoordinate = textureCoordinate + vec2(0.0, texel.y);
+      float oceanLeft = isOcean(leftCoordinate);
+      float oceanRight = isOcean(rightCoordinate);
+      float oceanDown = isOcean(downCoordinate);
+      float oceanUp = isOcean(upCoordinate);
+      float oceanNeighborWeight = oceanLeft + oceanRight + oceanDown + oceanUp;
+      vec4 stateLeft = readDeepState(leftCoordinate);
+      vec4 stateRight = readDeepState(rightCoordinate);
+      vec4 stateDown = readDeepState(downCoordinate);
+      vec4 stateUp = readDeepState(upCoordinate);
+      float neighborTemperature = (
+        oceanLeft * stateLeft.b
+        + oceanRight * stateRight.b
+        + oceanDown * stateDown.b
+        + oceanUp * stateUp.b
+      ) / max(oceanNeighborWeight, 1.0);
+      float neighborSalinity = (
+        oceanLeft * stateLeft.a
+        + oceanRight * stateRight.a
+        + oceanDown * stateDown.a
+        + oceanUp * stateUp.a
+      ) / max(oceanNeighborWeight, 1.0);
+      if (oceanNeighborWeight < 0.5) {
+        neighborTemperature = temperature;
+        neighborSalinity = salinity;
+      }
+      float referenceCellDegrees = 180.0 / 171.0;
+      float latitudeCellDegrees = 180.0
+        / float(textureSize(previousDeepState, 0).y);
+      float deepScalarMixing = min(
+        0.08,
+        0.015 * pow(referenceCellDegrees / latitudeCellDegrees, 2.0)
+      );
       temperature = mix(
         temperature,
-        0.25 * (stateLeft.b + stateRight.b + stateDown.b + stateUp.b),
-        0.015 * simulationTimeStep
+        neighborTemperature,
+        scaledFraction(deepScalarMixing)
       );
       salinity = mix(
         salinity,
-        0.25 * (stateLeft.a + stateRight.a + stateDown.a + stateUp.a),
-        0.015 * simulationTimeStep
+        neighborSalinity,
+        scaledFraction(deepScalarMixing)
       );
 
       vec2 surfaceVelocity = texture(surfaceCurrent, textureCoordinate).rg;
@@ -439,14 +506,23 @@ export const shaders = {
       current += scaledFraction(deepOceanCirculation * 0.004)
         * (-0.20 * surfaceVelocity - current);
 
-      float densityLeft = getDeepDensity(textureCoordinate - vec2(texel.x, 0.0));
-      float densityRight = getDeepDensity(textureCoordinate + vec2(texel.x, 0.0));
-      float densityDown = getDeepDensity(textureCoordinate - vec2(0.0, texel.y));
-      float densityUp = getDeepDensity(textureCoordinate + vec2(0.0, texel.y));
+      float centerDensity = getDeepDensity(textureCoordinate);
+      float densityLeft = mix(centerDensity, getDeepDensity(leftCoordinate), oceanLeft);
+      float densityRight = mix(centerDensity, getDeepDensity(rightCoordinate), oceanRight);
+      float densityDown = mix(centerDensity, getDeepDensity(downCoordinate), oceanDown);
+      float densityUp = mix(centerDensity, getDeepDensity(upCoordinate), oceanUp);
+      float longitudeCellDegrees = 360.0
+        / float(textureSize(previousDeepState, 0).x);
       vec2 densityGradient = vec2(
-        (densityRight - densityLeft) / cosineLatitude,
-        densityUp - densityDown
+        (densityRight - densityLeft)
+          * referenceCellDegrees
+          / (longitudeCellDegrees * cosineLatitude),
+        (densityUp - densityDown) * referenceCellDegrees / latitudeCellDegrees
       );
+      float densityGradientMagnitude = length(densityGradient);
+      if (densityGradientMagnitude > 12.0) {
+        densityGradient *= 12.0 / densityGradientMagnitude;
+      }
       current -= simulationTimeStep
         * deepOceanCirculation
         * 0.003
@@ -456,10 +532,6 @@ export const shaders = {
       float coriolis = 0.004 * rotationRatio * sin(radians(latitude));
       current += simulationTimeStep * coriolis * vec2(current.y, -current.x);
 
-      float oceanLeft = isOcean(textureCoordinate - vec2(texel.x, 0.0));
-      float oceanRight = isOcean(textureCoordinate + vec2(texel.x, 0.0));
-      float oceanDown = isOcean(textureCoordinate - vec2(0.0, texel.y));
-      float oceanUp = isOcean(textureCoordinate + vec2(0.0, texel.y));
       vec2 coastNormal = vec2(oceanRight - oceanLeft, oceanUp - oceanDown);
       if (length(coastNormal) > 0.0) {
         coastNormal = normalize(coastNormal);
@@ -1060,6 +1132,7 @@ export const shaders = {
 
       float orographicLift = 0.0;
       float condensedWater = 0.0;
+      float annualizedEvaporation = 0.0;
       if (height < waterLevel) {
         float rawEvaporationWindFactor = (25.0 + 19.0 * windSpeed)
           * max(windSpeed, 0.5);
@@ -1073,18 +1146,35 @@ export const shaders = {
           + 3850.0 * (
             1.0 - exp(-excessEvaporationWind / 3850.0)
           );
+        float evaporationTemperature = clamp(temperature, 230.0, 330.0);
         float saturationPressure = exp(
-          77.3450 + 0.0057 * temperature - 7235.0 / temperature
-        ) / pow(temperature, 8.2);
-        float vaporPressure = saturationPressure * relativeHumidity;
+          77.3450
+          + 0.0057 * evaporationTemperature
+          - 7235.0 / evaporationTemperature
+        ) / pow(evaporationTemperature, 8.2);
         float atmosphericPressure = 101325.0;
-        float humidityRatio = vaporPressure / (atmosphericPressure - vaporPressure);
+        saturationPressure = clamp(
+          saturationPressure,
+          0.0,
+          0.95 * atmosphericPressure
+        );
+        float vaporPressure = clamp(
+          saturationPressure * relativeHumidity,
+          0.0,
+          0.95 * atmosphericPressure
+        );
+        float humidityRatio = vaporPressure / max(
+          atmosphericPressure - vaporPressure,
+          1.0
+        );
         float saturatedHumidityRatio = saturationPressure / (
-          atmosphericPressure - saturationPressure
+          max(atmosphericPressure - saturationPressure, 1.0)
         );
-        float evaporationRate = evaporationWindFactor * (
-          saturatedHumidityRatio - humidityRatio
+        float evaporationRate = evaporationWindFactor * max(
+          saturatedHumidityRatio - humidityRatio,
+          0.0
         );
+        annualizedEvaporation = clamp(4.0 * evaporationRate, 0.0, 600.0);
         waterVapor += simulationTimeStep
           * 0.0000015
           * evaporationRate;
@@ -1338,7 +1428,7 @@ export const shaders = {
         marineMoisture
       );
       nextWind = vec4(wind, 0.0, 0.0);
-      temperatureOutput = vec4(temperature);
+      temperatureOutput = vec4(temperature, annualizedEvaporation, 0.0, 0.0);
       nextPressure = vec4(pressure, cycloneIntensity, 0.0, 0.0);
     }
   `,
