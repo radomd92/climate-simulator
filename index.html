@@ -50,7 +50,7 @@
       <aside class="control-panel">
         <div class="panel-heading">
           <p class="eyebrow">Inputs</p>
-          <h2 id="simulator-heading">Planet setup</h2>
+          <h2 id="simulator-heading">Controls</h2>
         </div>
 
         <div class="control-tabs" role="tablist" aria-label="Planet controls">
@@ -63,7 +63,7 @@
             aria-controls="world-controls-panel"
             data-control-tab
           >
-            World
+            Map
           </button>
           <button
             id="simulation-controls-tab"
@@ -75,7 +75,7 @@
             data-control-tab
             tabindex="-1"
           >
-            Simulation
+            Planet setup
           </button>
         </div>
 
@@ -85,52 +85,17 @@
           role="tabpanel"
           aria-labelledby="world-controls-tab"
         >
-          <div class="control-group">
-            <label for="heightmap">Heightmap</label>
+          <fieldset class="control-group map-loading-controls">
+            <legend>Map loading</legend>
+            <label class="compact-label" for="heightmap">Heightmap</label>
             <input id="heightmap" type="file" accept="image/*">
             <p class="hint">Use a 2:1 equirectangular grayscale image.</p>
-          </div>
-
-          <fieldset class="control-group presets">
-            <legend>Presets</legend>
-            <button type="button" data-preset="earth">Earth</button>
-            <button type="button" data-preset="retrograde">Retrograde Earth</button>
-            <button type="button" data-preset="cassini">Cassini Earth</button>
-          </fieldset>
-        </div>
-
-        <div
-          id="simulation-controls-panel"
-          class="control-tab-panel"
-          role="tabpanel"
-          aria-labelledby="simulation-controls-tab"
-          hidden
-        >
-          <div class="control-group">
-            <label for="simulation-quality">Simulation resolution</label>
-            <select id="simulation-quality" class="full-width-select">
-              <option value="1">Maximum (1 x 1 pixel blocks)</option>
-              <option value="2">High (2 x 2 pixel blocks)</option>
-              <option value="4" selected>Medium (4 x 4 pixel blocks)</option>
-              <option value="8">Low (8 x 8 pixel blocks)</option>
-              <option value="16">Very low (16 x 16 pixel blocks)</option>
-              <option value="custom">Custom</option>
-            </select>
-            <label class="compact-label" for="simulation-block-size">Block size</label>
-            <div class="input-with-unit">
-              <input
-                id="simulation-block-size"
-                type="number"
-                min="1"
-                max="64"
-                step="1"
-                value="4"
-              >
-              <span>output pixels</span>
+            <div class="presets" aria-label="Preset heightmaps">
+              <button type="button" data-preset="earth">Earth</button>
+              <button type="button" data-preset="retrograde">Retrograde Earth</button>
+              <button type="button" data-preset="cassini">Cassini Earth</button>
             </div>
-            <p id="simulation-resolution-status" class="hint" aria-live="polite"></p>
-            <p class="hint">Larger blocks reduce GPU memory and detail. Changes restart climate settling.</p>
-          </div>
+          </fieldset>
 
           <fieldset class="control-group pressure-area-controls">
             <legend>Pressure areas</legend>
@@ -198,23 +163,77 @@
           </div>
 
           <div class="control-group">
-            <label for="rotation-speed">Equatorial rotation speed</label>
-            <div class="input-with-select">
-              <input id="rotation-speed" type="number" step="any" value="460">
-              <select id="rotation-unit" aria-label="Rotation speed unit">
-                <option value="0.001">mm/s</option>
-                <option value="1" selected>m/s</option>
-                <option value="1000">km/s</option>
-                <option value="0.2777777777777778">km/h</option>
-                <option value="0.3048">ft/s</option>
-                <option value="0.44704">mph</option>
-                <option value="0.5144444444444445">kn</option>
-                <option value="299792458">c</option>
-              </select>
+            <label for="orbital-eccentricity">Orbital eccentricity</label>
+            <div class="input-with-unit">
+              <input
+                id="orbital-eccentricity"
+                type="number"
+                min="0"
+                max="0.2"
+                step="0.0001"
+                value="0.0167"
+              >
+              <span>Earth: 0.0167</span>
             </div>
-            <p class="hint">A negative value represents retrograde rotation.</p>
+            <p class="hint">Automatic seasons vary irradiance with orbital distance.</p>
           </div>
 
+          <div class="control-group">
+            <label for="perihelion-day">Perihelion day</label>
+            <div class="input-with-unit">
+              <input
+                id="perihelion-day"
+                type="number"
+                min="1"
+                max="365"
+                step="1"
+                value="3"
+              >
+              <span>day of year</span>
+            </div>
+            <p id="perihelion-date" class="hint" aria-live="polite">Approximate date: January 3</p>
+            <p class="hint">Sets closest approach during automatic seasons; Earth is approximately day 3.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="solar-declination">Solar declination</label>
+            <div class="input-with-unit">
+              <input
+                id="solar-declination"
+                type="number"
+                min="-23.5"
+                max="23.5"
+                step="0.5"
+                value="0"
+              >
+              <span>degrees</span>
+            </div>
+            <p class="hint">Positive values produce northern summer; negative values produce southern summer.</p>
+            <label class="checkbox-control">
+              <input id="auto-seasons" type="checkbox" checked>
+              Cycle seasons automatically
+            </label>
+            <label class="compact-label" for="season-speed">Seasonal simulation</label>
+            <select id="season-speed" class="full-width-select">
+              <option value="480" selected>About 3 seconds/year</option>
+              <option value="960">About 6 seconds/year</option>
+              <option value="1920">About 12 seconds/year</option>
+              <option value="3200">About 20 seconds/year</option>
+              <option value="6400">About 40 seconds/year</option>
+              <option value="9600">About 60 seconds/year</option>
+              <option value="19200">About 120 seconds/year</option>
+            </select>
+            <p id="season-position" class="season-position">March equinox</p>
+          </div>
+        </div>
+
+        <div
+          id="simulation-controls-panel"
+          class="control-tab-panel"
+          role="tabpanel"
+          aria-labelledby="simulation-controls-tab"
+          hidden
+        >
           <div class="control-group">
             <label for="global-circulation">Global circulation strength</label>
             <div class="input-with-unit">
@@ -279,6 +298,52 @@
             <p class="hint">Controls high-latitude sinking, tropical upwelling, and deep return flow.</p>
           </div>
 
+          <details class="advanced-controls">
+            <summary>Advanced setup</summary>
+          <div class="control-group">
+            <label for="simulation-quality">Simulation resolution</label>
+            <select id="simulation-quality" class="full-width-select">
+              <option value="1">Maximum (1 x 1 pixel blocks)</option>
+              <option value="2">High (2 x 2 pixel blocks)</option>
+              <option value="4" selected>Medium (4 x 4 pixel blocks)</option>
+              <option value="8">Low (8 x 8 pixel blocks)</option>
+              <option value="16">Very low (16 x 16 pixel blocks)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <label class="compact-label" for="simulation-block-size">Block size</label>
+            <div class="input-with-unit">
+              <input
+                id="simulation-block-size"
+                type="number"
+                min="1"
+                max="64"
+                step="1"
+                value="4"
+              >
+              <span>output pixels</span>
+            </div>
+            <p id="simulation-resolution-status" class="hint" aria-live="polite"></p>
+            <p class="hint">Larger blocks reduce GPU memory and detail. Changes restart climate settling.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="rotation-speed">Equatorial rotation speed</label>
+            <div class="input-with-select">
+              <input id="rotation-speed" type="number" step="any" value="460">
+              <select id="rotation-unit" aria-label="Rotation speed unit">
+                <option value="0.001">mm/s</option>
+                <option value="1" selected>m/s</option>
+                <option value="1000">km/s</option>
+                <option value="0.2777777777777778">km/h</option>
+                <option value="0.3048">ft/s</option>
+                <option value="0.44704">mph</option>
+                <option value="0.5144444444444445">kn</option>
+                <option value="299792458">c</option>
+              </select>
+            </div>
+            <p class="hint">A negative value represents retrograde rotation.</p>
+          </div>
+
           <div class="control-group">
             <label for="insolation">Reference solar irradiance</label>
             <div class="input-with-select">
@@ -290,70 +355,7 @@
             </div>
             <p class="hint">Flux at the orbit's semi-major-axis distance.</p>
           </div>
-
-          <div class="control-group">
-            <label for="orbital-eccentricity">Orbital eccentricity</label>
-            <div class="input-with-unit">
-              <input
-                id="orbital-eccentricity"
-                type="number"
-                min="0"
-                max="0.2"
-                step="0.0001"
-                value="0.0167"
-              >
-              <span>Earth: 0.0167</span>
-            </div>
-            <p class="hint">Automatic seasons vary irradiance with orbital distance.</p>
-          </div>
-
-          <div class="control-group">
-            <label for="perihelion-day">Perihelion day</label>
-            <div class="input-with-unit">
-              <input
-                id="perihelion-day"
-                type="number"
-                min="1"
-                max="365"
-                step="1"
-                value="3"
-              >
-              <span>day of year</span>
-            </div>
-            <p id="perihelion-date" class="hint" aria-live="polite">Approximate date: January 3</p>
-            <p class="hint">Sets closest approach during automatic seasons; Earth is approximately day 3.</p>
-          </div>
-
-          <div class="control-group">
-            <label for="solar-declination">Solar declination</label>
-            <div class="input-with-unit">
-              <input
-                id="solar-declination"
-                type="number"
-                min="-23.5"
-                max="23.5"
-                step="0.5"
-                value="0"
-              >
-              <span>degrees</span>
-            </div>
-            <p class="hint">Positive values produce northern summer; negative values produce southern summer.</p>
-            <label class="checkbox-control">
-              <input id="auto-seasons" type="checkbox" checked>
-              Cycle seasons automatically
-            </label>
-            <label class="compact-label" for="season-speed">Seasonal simulation</label>
-            <select id="season-speed" class="full-width-select">
-              <option value="480" selected>About 3 seconds/year</option>
-              <option value="960">About 6 seconds/year</option>
-              <option value="1920">About 12 seconds/year</option>
-              <option value="3200">About 20 seconds/year</option>
-              <option value="6400">About 40 seconds/year</option>
-              <option value="9600">About 60 seconds/year</option>
-              <option value="19200">About 120 seconds/year</option>
-            </select>
-            <p id="season-position" class="season-position">March equinox</p>
-          </div>
+          </details>
         </div>
       </aside>
 
