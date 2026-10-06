@@ -50,7 +50,7 @@ export const shaders = {
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
       float temperature = 273.15 + mix(-20.0, 30.0, solarFactor) - 3.0;
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
-      temperature += seasonality * 12.0;
+      temperature += seasonality * 16.0;
       float temperatureScale = pow(max(solarIrradiance / 1361.0, 0.0), 0.25);
       return max(temperature * temperatureScale, 271.0);
     }
@@ -124,7 +124,7 @@ export const shaders = {
       float deepSalinity = deepState.a > 1.0 ? deepState.a : 34.7;
       // Broad tropical upwelling entrains only a small fraction of deep water
       // into the mixed layer; stronger cooling is handled at eastern coasts.
-      float upwelling = 0.04 * max(-texture(previousOverturning, textureCoordinate).r, 0.0);
+      float upwelling = 0.02 * max(-texture(previousOverturning, textureCoordinate).r, 0.0);
       float upwellingFraction = scaledFraction(upwelling);
       temperature = mix(temperature, deepTemperature, upwellingFraction);
       salinity = mix(salinity, deepSalinity, upwellingFraction);
@@ -141,12 +141,22 @@ export const shaders = {
         + readSalinity(textureCoordinate - vec2(0.0, texel.y))
         + readSalinity(textureCoordinate + vec2(0.0, texel.y))
       );
+      float latitudeCellDegrees = 180.0
+        / float(textureSize(previousTemperature, 0).y);
+      float scalarMixing = min(
+        0.08,
+        0.0028 / (latitudeCellDegrees * latitudeCellDegrees)
+      );
       temperature = mix(
         temperature,
         temperatureNeighbors,
-        0.04 * simulationTimeStep
+        scaledFraction(scalarMixing)
       );
-      salinity = mix(salinity, salinityNeighbors, 0.04 * simulationTimeStep);
+      salinity = mix(
+        salinity,
+        salinityNeighbors,
+        scaledFraction(scalarMixing)
+      );
 
       vec2 wind = texture(atmosphericWind, textureCoordinate).rg;
       float rotationRatio = rotationSpeed / 460.0;
@@ -243,6 +253,8 @@ export const shaders = {
         * (separatedTarget - current);
 
       vec2 equatorwardDirection = -polewardDirection;
+      float upwellingLatitude = smoothstep(2.0, 12.0, abs(latitude))
+        * (1.0 - smoothstep(45.0, 58.0, abs(latitude)));
       float favorableUpwellingWind = max(
         dot(normalize(wind + vec2(0.0001)), equatorwardDirection),
         0.0
@@ -250,7 +262,7 @@ export const shaders = {
       float coastalUpwelling = oceanCirculation
         * abs(rotationDirection)
         * broadBoundary
-        * boundaryLatitude
+        * upwellingLatitude
         * favorableUpwellingWind;
       temperature = mix(
         temperature,
@@ -527,12 +539,19 @@ export const shaders = {
       return 1.0 - smoothstep(waterLevel - 0.025, waterLevel + 0.025, height);
     }
 
-    float getRegionalOnshoreFlow(vec2 uv, vec2 wind, float latitude) {
+    void getOnshoreFlowSupport(
+      vec2 uv,
+      vec2 wind,
+      float latitude,
+      out float regionalOnshoreFlow,
+      out float deepBasinOnshoreFlow
+    ) {
       float cosineLatitude = max(cos(radians(latitude)), 0.15);
       float windSpeed = length(wind);
       vec2 windDirection = wind / max(windSpeed, 0.001);
       float oceanAccess = 0.0;
-      for (int sampleIndex = 1; sampleIndex <= 3; sampleIndex += 1) {
+      float oceanSamples[5];
+      for (int sampleIndex = 1; sampleIndex <= 5; sampleIndex += 1) {
         float distanceDegrees = 6.0 * float(sampleIndex);
         vec2 upwindOffset = windDirection * vec2(
           distanceDegrees / (360.0 * cosineLatitude),
@@ -540,17 +559,39 @@ export const shaders = {
         );
         vec2 sampleCoordinate = uv - upwindOffset;
         sampleCoordinate.y = clamp(sampleCoordinate.y, 0.0, 1.0);
-        oceanAccess = max(oceanAccess, getOceanWeight(sampleCoordinate));
+        oceanSamples[sampleIndex - 1] = getOceanWeight(sampleCoordinate);
+        if (sampleIndex <= 3) {
+          oceanAccess = max(oceanAccess, oceanSamples[sampleIndex - 1]);
+        }
+      }
+      float deepBasinAccess = 0.0;
+      for (int sampleIndex = 0; sampleIndex < 3; sampleIndex += 1) {
+        float sustainedOcean = oceanSamples[sampleIndex] * (
+          oceanSamples[sampleIndex]
+          + oceanSamples[sampleIndex + 1]
+          + oceanSamples[sampleIndex + 2]
+        ) / 3.0;
+        deepBasinAccess = max(deepBasinAccess, sustainedOcean);
       }
       float windSupport = smoothstep(2.0, 8.0, windSpeed);
-      return windSupport * smoothstep(0.08, 0.55, oceanAccess);
+      float hemisphere = latitude / sqrt(latitude * latitude + 36.0);
+      float polewardTransport = hemisphere * windDirection.y;
+      float equatorwardSourceSupport = smoothstep(
+        -0.20,
+        0.25,
+        polewardTransport
+      );
+      regionalOnshoreFlow = windSupport * smoothstep(0.08, 0.55, oceanAccess);
+      deepBasinOnshoreFlow = windSupport
+        * smoothstep(0.35, 0.75, deepBasinAccess)
+        * equatorwardSourceSupport;
     }
 
     float getOceanEquilibriumTemperature(float latitude) {
       float solarFactor = clamp(cos(radians(latitude)), 0.4, 1.0);
       float temperature = 273.15 + mix(-20.0, 30.0, solarFactor) - 3.0;
       float seasonality = sin(radians(latitude)) * sin(radians(solarDeclination));
-      temperature += seasonality * 12.0;
+      temperature += seasonality * 16.0;
       float temperatureScale = pow(max(solarIrradiance / 1361.0, 0.0), 0.25);
       return max(temperature * temperatureScale, 271.0);
     }
@@ -1146,18 +1187,22 @@ export const shaders = {
         polewardHeight - height
       ) * polewardLandConnection;
       float marineHumidity = relativeHumidity * marineMoisture;
-      float regionalOnshoreFlow = getRegionalOnshoreFlow(
+      float regionalOnshoreFlow;
+      float deepBasinOnshoreFlow;
+      getOnshoreFlowSupport(
         textureCoordinate,
         wind,
-        latitude
+        latitude,
+        regionalOnshoreFlow,
+        deepBasinOnshoreFlow
       );
       float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity)
-        * regionalOnshoreFlow;
+        * deepBasinOnshoreFlow;
       float temperateHumidOnshoreFlow = smoothstep(0.14, 0.36, marineHumidity)
         * smoothstep(24.0, 32.0, abs(latitude))
-        * regionalOnshoreFlow;
+        * deepBasinOnshoreFlow;
       float deepMarineMonsoon = smoothstep(0.28, 0.42, marineHumidity)
-        * regionalOnshoreFlow;
+        * deepBasinOnshoreFlow;
       float humidOnshoreFlow = max(
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow
@@ -1196,9 +1241,13 @@ export const shaders = {
       temperateMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       deepMarineMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
       plateauMonsoonAscent *= mix(0.15, 1.0, monsoonFlowSupport);
+      float actualConvergenceSupport = smoothstep(0.01, 0.08, convergenceRain);
       float effectiveSubtropicalSubsidence = subtropicalSubsidence * (
         1.0
-        - 0.55 * seasonalLandHeating * humidOnshoreFlow * monsoonFlowSupport
+        - 0.55
+          * seasonalLandHeating
+          * humidOnshoreFlow
+          * actualConvergenceSupport
       );
       float monsoonOrography = max(orographicLift, polewardRelief);
       float rainfallEfficiency = clamp(
@@ -1349,12 +1398,19 @@ export const shaders = {
       return 1.0 - smoothstep(waterLevel - 0.025, waterLevel + 0.025, height);
     }
 
-    float getRegionalOnshoreFlow(vec2 uv, vec2 wind, float latitude) {
+    void getOnshoreFlowSupport(
+      vec2 uv,
+      vec2 wind,
+      float latitude,
+      out float regionalOnshoreFlow,
+      out float deepBasinOnshoreFlow
+    ) {
       float cosineLatitude = max(cos(radians(latitude)), 0.15);
       float windSpeed = length(wind);
       vec2 windDirection = wind / max(windSpeed, 0.001);
       float oceanAccess = 0.0;
-      for (int sampleIndex = 1; sampleIndex <= 3; sampleIndex += 1) {
+      float oceanSamples[5];
+      for (int sampleIndex = 1; sampleIndex <= 5; sampleIndex += 1) {
         float distanceDegrees = 6.0 * float(sampleIndex);
         vec2 upwindOffset = windDirection * vec2(
           distanceDegrees / (360.0 * cosineLatitude),
@@ -1362,10 +1418,32 @@ export const shaders = {
         );
         vec2 sampleCoordinate = uv - upwindOffset;
         sampleCoordinate.y = clamp(sampleCoordinate.y, 0.0, 1.0);
-        oceanAccess = max(oceanAccess, getOceanWeight(sampleCoordinate));
+        oceanSamples[sampleIndex - 1] = getOceanWeight(sampleCoordinate);
+        if (sampleIndex <= 3) {
+          oceanAccess = max(oceanAccess, oceanSamples[sampleIndex - 1]);
+        }
+      }
+      float deepBasinAccess = 0.0;
+      for (int sampleIndex = 0; sampleIndex < 3; sampleIndex += 1) {
+        float sustainedOcean = oceanSamples[sampleIndex] * (
+          oceanSamples[sampleIndex]
+          + oceanSamples[sampleIndex + 1]
+          + oceanSamples[sampleIndex + 2]
+        ) / 3.0;
+        deepBasinAccess = max(deepBasinAccess, sustainedOcean);
       }
       float windSupport = smoothstep(2.0, 8.0, windSpeed);
-      return windSupport * smoothstep(0.08, 0.55, oceanAccess);
+      float hemisphere = latitude / sqrt(latitude * latitude + 36.0);
+      float polewardTransport = hemisphere * windDirection.y;
+      float equatorwardSourceSupport = smoothstep(
+        -0.20,
+        0.25,
+        polewardTransport
+      );
+      regionalOnshoreFlow = windSupport * smoothstep(0.08, 0.55, oceanAccess);
+      deepBasinOnshoreFlow = windSupport
+        * smoothstep(0.35, 0.75, deepBasinAccess)
+        * equatorwardSourceSupport;
     }
 
     void main() {
@@ -1416,16 +1494,20 @@ export const shaders = {
       ) * polewardLandConnection;
       float marineHumidity = relativeHumidity * marineMoisture;
       vec2 wind = texture(windMap, textureCoordinate).rg;
-      float regionalOnshoreFlow = getRegionalOnshoreFlow(
+      float regionalOnshoreFlow;
+      float deepBasinOnshoreFlow;
+      getOnshoreFlowSupport(
         textureCoordinate,
         wind,
-        latitude
+        latitude,
+        regionalOnshoreFlow,
+        deepBasinOnshoreFlow
       );
       float tropicalHumidOnshoreFlow = smoothstep(0.16, 0.36, marineHumidity)
-        * regionalOnshoreFlow;
+        * deepBasinOnshoreFlow;
       float temperateHumidOnshoreFlow = smoothstep(0.14, 0.36, marineHumidity)
         * smoothstep(24.0, 32.0, abs(latitude))
-        * regionalOnshoreFlow;
+        * deepBasinOnshoreFlow;
       float humidOnshoreFlow = max(
         tropicalHumidOnshoreFlow,
         temperateHumidOnshoreFlow

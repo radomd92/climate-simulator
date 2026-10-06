@@ -72,11 +72,14 @@ tracer is generated over water, transported and mixed with humidity, and
 gradually decays over land. Humidity-driven monsoons require a high product of
 relative humidity and recent marine provenance, preventing residual continental
 humidity from activating a full monsoon. The marine gate also requires
-regional wind to trace upwind to ocean at one of three distances, so diagonal
-coastal inflow is represented while circular or offshore flow does not count as
-monsoon inflow merely because it is humid. Marine provenance persists farther
-over heated land, and verified warm-season humid onshore flow can partially
-offset subtropical subsidence without removing it from dry interiors.
+regional wind to trace upwind to ocean, so diagonal coastal inflow is
+represented while circular or offshore flow does not count as monsoon inflow
+merely because it is humid. Exceptional deep-marine monsoon rainfall requires
+sustained ocean fetch across several samples and favors an equatorward source;
+this prevents a short poleward-sea crossing from behaving like a tropical ocean
+basin. Marine provenance persists farther over heated land, and verified
+warm-season humid onshore flow can partially offset subtropical subsidence only
+where the modeled wind is actually convergent.
 
 ## Tropical cyclones
 
@@ -123,7 +126,12 @@ boundary. Fast currents mix heat from several progressively upstream ocean
 samples and retain transported temperature anomalies longer than still water,
 allowing warm plumes to cross a larger part of a basin without passing through
 islands or isthmuses. Favorable alongshore winds mix deep cold water into
-eastern boundaries. Cold SST creates a marine-inversion tracer that is mixed
+eastern boundaries, with a continuous low-latitude branch that can seed
+tropical cold tongues. Temperature and salinity neighbor mixing scales with the
+grid's angular cell size, avoiding excessive physical diffusion on coarse
+simulation grids. Broad low-latitude deep entrainment remains weaker than
+localized coastal upwelling so tropical warm-pool and cold-current anomalies
+can persist. Cold SST creates a marine-inversion tracer that is mixed
 and transported by the atmospheric wind field. The tracer decays over warm
 land and suppresses convective precipitation nonlinearly, so dry coastal air
 follows circulation rather than a fixed distance from a coastline. Strong
